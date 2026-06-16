@@ -1,0 +1,63 @@
+# ── Secrets ────────────────────────────────────────────────────────────
+# Never commit real environment files. .env.example is the template.
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# ── Dependencies ───────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Build output ───────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+**/dist/
+**/build/
+
+# ── Logs ───────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Local databases & runtime data ─────────────────────────────────────
+# Local MongoDB storage used by docker-less dev setup
+mongodb_data/
+*.mongodb
+*.lock.db
+*.data.db
+
+# ── Caches ─────────────────────────────────────────────────────────────
+.cache/
+.npm/
+.eslintcache
+*.tsbuildinfo
+
+# ── OS / Editor ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.swn
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Misc ───────────────────────────────────────────────────────────────
+*.pid
+*.seed
+*.pid.lock
+.DS_Store?
+coverage/
+.nyc_output/

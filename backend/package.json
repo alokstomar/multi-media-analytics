@@ -1,0 +1,27 @@
+{
+  "name": "creator-analytics-backend",
+  "version": "1.0.0",
+  "description": "YouTube Multi-Channel Analytics SaaS Backend",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test:instagram": "node test_instagram_publishing.js",
+    "test:audit": "node stability_audit.js"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.77.7",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "ioredis": "^5.11.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.24.0",
+    "nodemon": "^3.1.14",
+    "openai": "^6.39.1"
+  }
+}
