@@ -29,6 +29,7 @@ lerna-debug.log*
 # ── Local databases & runtime data ─────────────────────────────────────
 # Local MongoDB storage used by docker-less dev setup
 mongodb_data/
+backend/data/
 *.mongodb
 *.lock.db
 *.data.db
