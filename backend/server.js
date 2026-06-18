@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import { connectDB } from './config/db.js'
+import { connectDB, verifyDbConnected, getDbStatus } from './config/db.js'
 import { errorHandler } from './utils/errorHandler.js'
 import channelRoutes from './routes/channelRoutes.js'
 import videoRoutes from './routes/videoRoutes.js'
@@ -30,8 +30,8 @@ app.use(cors({
     if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
       return callback(null, true)
     }
-    const allowed = process.env.FRONTEND_URL || 'http://localhost:5173'
-    if (origin === allowed) {
+    const allowed = (process.env.FRONTEND_URL || 'http://localhost:5173').trim().replace(/\/$/, '')
+    if (origin === allowed || /\.vercel\.app$/.test(origin)) {
       return callback(null, true)
     }
     callback(new Error('Not allowed by CORS'))
@@ -40,6 +40,21 @@ app.use(cors({
 }))
 app.use(express.json())
 app.use(cookieParser())
+
+// Health check (placed before verifyDbConnected to bypass DB check)
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() })
+})
+
+// DB diagnostic endpoint (also bypasses verifyDbConnected so it can report
+// state DURING a connection outage). Returns connection state only — never
+// the URI or credentials.
+app.get('/api/debug/db', (_req, res) => {
+  res.json(getDbStatus())
+})
+
+// Ensure database connection is active for all API routes
+app.use('/api', verifyDbConnected)
 
 // Routes
 app.use('/api/auth', authRoutes)
@@ -61,31 +76,45 @@ app.use('/api/scheduler', protect, schedulerRoutes)
 app.use('/api/twitter', twitterOAuthRoutes) // Managed internally (contains public callback)
 app.use('/api/linkedin', linkedinOAuthRoutes) // Managed internally (contains public callback)
 
-// Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() })
-})
-
 // Error handler — must be last
 app.use(errorHandler)
 
-const PORT = process.env.PORT || 5000
-
-// Start server, then connect DB in background
-app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`)
-  await connectDB()
-  initScheduler()
-
-  // Print startup check status lines
-  console.log('\n=== Platform Startup Check ===')
-  console.log('* MongoDB Connected')
-  console.log('* Redis Connected')
-  console.log('* Scheduler Initialized')
-  console.log('* Publishing Workers Started')
-  console.log('* OpenAI Provider Loaded')
-  console.log('* Twitter OAuth Loaded')
-  console.log('* LinkedIn OAuth Loaded')
-  console.log('* Instagram OAuth Loaded')
-  console.log('==============================\n')
+// Warm up the DB connection at module load. On Vercel this runs at cold start,
+// so the connection is already in-flight by the time the first request hits
+// verifyDbConnected (which awaits the same cached promise). Not awaited here —
+// module export must remain synchronous, and verifyDbConnected handles failures.
+connectDB().catch((err) => {
+  console.error('[Server] Warm-up MongoDB connection failed:', err.message)
 })
+
+// Only listen on port and start background scheduler if NOT running on Vercel (Serverless Function)
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000
+  app.listen(PORT, async () => {
+    console.log(`Server running on http://localhost:${PORT}`)
+    
+    // Connect database immediately for self-hosted environment
+    try {
+      await connectDB()
+    } catch (err) {
+      console.error('Initial MongoDB connection failed:', err.message)
+    }
+
+    initScheduler()
+
+    // Print startup check status lines
+    console.log('\n=== Platform Startup Check ===')
+    console.log('* MongoDB Connected')
+    console.log('* Redis Connected')
+    console.log('* Scheduler Initialized')
+    console.log('* Publishing Workers Started')
+    console.log('* OpenAI Provider Loaded')
+    console.log('* Twitter OAuth Loaded')
+    console.log('* LinkedIn OAuth Loaded')
+    console.log('* Instagram OAuth Loaded')
+    console.log('==============================\n')
+  })
+}
+
+export default app
+
