@@ -22,6 +22,13 @@ const SERVERLESS_OPTS = {
 
 let cachedPromise = null
 
+// Diagnostic state — captures the most recent connection outcome so
+// /api/debug/db can report WHY the connection failed, not just THAT it failed.
+// Without this, readyState=0 + no visible error in Vercel logs is a dead end.
+let lastConnectError = null
+let lastConnectAt = null
+let connectAttempts = 0
+
 function resolveMongoUri() {
   return (
     process.env.MONGO_URI ||
@@ -56,7 +63,7 @@ function maskUri(uri) {
  *   - Cold starts reuse the in-flight promise across concurrent requests.
  *   - Failed connections are retried on the next request, never stuck.
  */
-export async function connectDB() {
+export async function connectDB({ force = false } = {}) {
   const uri = resolveMongoUri()
   const env = process.env.NODE_ENV || 'development'
   const isVercel = !!process.env.VERCEL
@@ -72,17 +79,19 @@ export async function connectDB() {
   const READY_CONNECTING = 2
   const READY_CONNECTED = 1
 
-  if (mongoose.connection.readyState === READY_CONNECTED) {
+  if (mongoose.connection.readyState === READY_CONNECTED && !force) {
     return mongoose
   }
 
   // If the cached promise exists but the connection is neither connected nor
   // connecting, the previous attempt failed — reset so we actually retry.
-  if (cachedPromise && mongoose.connection.readyState !== READY_CONNECTING) {
+  // force=true also resets so /api/debug/db?reconnect=1 can drive a fresh attempt.
+  if (force || (cachedPromise && mongoose.connection.readyState !== READY_CONNECTING)) {
     cachedPromise = null
   }
 
   if (!cachedPromise) {
+    connectAttempts += 1
     console.log(
       `[DB] Connecting — env=${env} vercel=${isVercel} uri=${maskUri(uri)}`
     )
@@ -91,10 +100,24 @@ export async function connectDB() {
 
   try {
     await cachedPromise
+    lastConnectError = null
     return mongoose
   } catch (err) {
     cachedPromise = null
-    console.error('[DB] MongoDB connection error:', err.message)
+    lastConnectAt = new Date().toISOString()
+    // Capture the structured error — name + code tell us the failure class
+    // (MongoServerSelectionError / MongoNetworkError / AuthenticationFailed /
+    // MongoParseError). Stash before rethrow so /api/debug/db can report it.
+    lastConnectError = {
+      message: err.message,
+      name: err.name,
+      code: err.code ?? null,
+      codeName: err.codeName ?? null,
+    }
+    console.error('[DB] MongoDB connection error:', err.message, {
+      name: err.name,
+      code: err.code,
+    })
     throw err
   }
 }
@@ -144,7 +167,15 @@ export function getDbStatus() {
     isVercel: !!process.env.VERCEL,
     hasMongoUri: Boolean(uri),
     uriScheme: scheme,
+    uriLength: uri ? uri.length : 0,
+    // Masked preview catches structural issues (trailing whitespace, missing
+    // db name, missing ?retryWrites, malformed host) without leaking password.
+    uriMaskedPreview: uri ? maskUri(uri) : null,
     host: mongoose.connection.host || null,
     name: mongoose.connection.name || null,
+    lastConnectError,
+    lastConnectAt,
+    connectAttempts,
+    cachedPromisePending: Boolean(cachedPromise),
   }
 }

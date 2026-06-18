@@ -48,8 +48,16 @@ app.get('/api/health', (_req, res) => {
 
 // DB diagnostic endpoint (also bypasses verifyDbConnected so it can report
 // state DURING a connection outage). Returns connection state only — never
-// the URI or credentials.
-app.get('/api/debug/db', (_req, res) => {
+// the URI or credentials. ?reconnect=1 forces a fresh attempt and captures
+// the structured error in lastConnectError for the next response payload.
+app.get('/api/debug/db', async (req, res) => {
+  if (req.query.reconnect === '1') {
+    try {
+      await connectDB({ force: true })
+    } catch {
+      // swallowed — the error is now in module state and will be reported below
+    }
+  }
   res.json(getDbStatus())
 })
 
