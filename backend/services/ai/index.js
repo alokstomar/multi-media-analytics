@@ -13,6 +13,7 @@ if (providerType === 'openai' && apiKey) {
   // Build a fallback proxy: every method on the provider interface
   // is wrapped so that if OpenAI throws, we silently fall back to stub
   const methodNames = [
+    'healthCheck',
     'generateTweet', 'generateThread', 'analyzeTweet',
     'generateContentIdeas', 'findTrendingTopics',
     'generateLinkedInPost', 'generateThoughtLeadership',

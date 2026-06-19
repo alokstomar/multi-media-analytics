@@ -194,6 +194,17 @@ export class OpenAIProvider extends AIProviderInterface {
 
   // ── Core execution pipeline ───────────────────────────────────────────
 
+  async healthCheck() {
+    return {
+      provider: 'openai',
+      fastModel: this.fastModel,
+      premiumModel: this.premiumModel,
+      apiKeyConfigured: !!this.apiKey,
+      dailyBudget: this.dailyBudget === Infinity ? null : this.dailyBudget,
+      monthlyBudget: this.monthlyBudget === Infinity ? null : this.monthlyBudget,
+    }
+  }
+
   _getModel(method) {
     return PREMIUM_METHODS.has(method) ? this.premiumModel : this.fastModel
   }

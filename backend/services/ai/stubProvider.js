@@ -18,6 +18,17 @@ function fmtViews(n) {
 }
 
 export class StubAIProvider extends AIProviderInterface {
+  async healthCheck() {
+    return {
+      provider: 'stub',
+      fastModel: null,
+      premiumModel: null,
+      apiKeyConfigured: false,
+      dailyBudget: null,
+      monthlyBudget: null,
+    }
+  }
+
   async generateTweet(topic, audience, tone, goal) {
     return {
       tweet: `Stop wasting hours on manual tasks. Here is how you can use automation in ${topic} to save 10+ hours a week starting tomorrow: 🚀⚡`,
