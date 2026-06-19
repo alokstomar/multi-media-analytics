@@ -16,7 +16,11 @@ if (providerType === 'openai' && apiKey) {
     'generateTweet', 'generateThread', 'analyzeTweet',
     'generateContentIdeas', 'findTrendingTopics',
     'generateLinkedInPost', 'generateThoughtLeadership',
-    'analyzeLinkedInPost', 'discoverIndustryTrends', 'repurposeContent'
+    'analyzeLinkedInPost', 'discoverIndustryTrends', 'repurposeContent',
+    // Priority 1 — YouTube Content Intelligence
+    'analyzeTitle', 'analyzeThumbnail',
+    'generateVideoIdeas', 'generateShortsIdeas',
+    'getStrategistTips'
   ]
 
   const proxy = {}

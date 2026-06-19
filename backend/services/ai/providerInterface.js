@@ -39,4 +39,29 @@ export class AIProviderInterface {
   async repurposeContent(sourceText, targetFormat) {
     throw new Error('repurposeContent() not implemented')
   }
+
+  // ── Priority 1: YouTube Content Intelligence ──────────────────────────
+  // All take a context/payload object as the first arg and an options
+  // object ({ channelId, feature }) as the second, mirroring the calls
+  // made by intelligenceController.js.
+
+  async analyzeTitle(payload, opts) {
+    throw new Error('analyzeTitle() not implemented')
+  }
+
+  async analyzeThumbnail(payload, opts) {
+    throw new Error('analyzeThumbnail() not implemented')
+  }
+
+  async generateVideoIdeas(ctx, opts) {
+    throw new Error('generateVideoIdeas() not implemented')
+  }
+
+  async generateShortsIdeas(ctx, opts) {
+    throw new Error('generateShortsIdeas() not implemented')
+  }
+
+  async getStrategistTips(ctx, opts) {
+    throw new Error('getStrategistTips() not implemented')
+  }
 }

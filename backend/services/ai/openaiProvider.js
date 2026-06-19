@@ -15,7 +15,13 @@ const CACHE_TTL = {
   generateThoughtLeadership: 24,
   analyzeLinkedInPost: 48,
   discoverIndustryTrends: 6,
-  repurposeContent: 24
+  repurposeContent: 24,
+  // Priority 1 — Content Intelligence
+  analyzeTitle: 48,
+  analyzeThumbnail: 48,
+  generateVideoIdeas: 12,
+  generateShortsIdeas: 12,
+  getStrategistTips: 6
 }
 
 // ── Model tier: which methods get the premium model ─────────────────────
@@ -23,7 +29,8 @@ const PREMIUM_METHODS = new Set([
   'generateThoughtLeadership',
   'repurposeContent',
   'analyzeLinkedInPost',
-  'analyzeTweet'
+  'analyzeTweet',
+  'analyzeThumbnail', // needs vision → gpt-4o
 ])
 
 // ── Cost per 1M tokens (USD) for estimating spend ───────────────────────
@@ -114,6 +121,62 @@ const VALIDATORS = {
       && typeof obj.shortPost === 'string'
       && typeof obj.longPost === 'string'
       && Array.isArray(obj.carouselOutline)
+  },
+  // ── Priority 1: Content Intelligence ──────────────────────────────────
+  analyzeTitle(obj) {
+    return obj
+      && typeof obj.hookScore === 'number'
+      && typeof obj.clarityScore === 'number'
+      && typeof obj.seoScore === 'number'
+      && typeof obj.emotionalScore === 'number'
+      && typeof obj.overallScore === 'number'
+      && Array.isArray(obj.suggestions)
+      && Array.isArray(obj.variants)
+  },
+  analyzeThumbnail(obj) {
+    return obj
+      && typeof obj.ctr === 'number'
+      && typeof obj.attention === 'number'
+      && typeof obj.clutter === 'number'
+      && typeof obj.face === 'number'
+      && typeof obj.contrast === 'number'
+      && Array.isArray(obj.improvements)
+  },
+  generateVideoIdeas(obj) {
+    if (!obj || !Array.isArray(obj.ideas) || obj.ideas.length === 0) return false
+    return obj.ideas.every((i) =>
+      typeof i.id === 'number'
+      && typeof i.title === 'string'
+      && typeof i.whyRecommend === 'string'
+      && typeof i.predictedViews === 'string'
+      && typeof i.predictedEngagement === 'string'
+      && typeof i.difficulty === 'number'
+      && typeof i.opportunity === 'number'
+      && typeof i.trendScore === 'number'
+      && typeof i.tag === 'string'
+      && typeof i.badgeColor === 'string'
+    )
+  },
+  generateShortsIdeas(obj) {
+    if (!obj || !Array.isArray(obj.ideas) || obj.ideas.length === 0) return false
+    return obj.ideas.every((i) =>
+      typeof i.id === 'number'
+      && typeof i.title === 'string'
+      && typeof i.hook === 'string'
+      && typeof i.first3s === 'string'
+      && typeof i.cta === 'string'
+      && typeof i.retention === 'string'
+      && typeof i.viralScore === 'number'
+      && typeof i.trendStrength === 'number'
+    )
+  },
+  getStrategistTips(obj) {
+    if (!obj || !Array.isArray(obj.tips) || obj.tips.length === 0) return false
+    return obj.tips.every((t) =>
+      typeof t.id === 'number'
+      && typeof t.text === 'string'
+      && ['positive', 'warning', 'info'].includes(t.type)
+    )
   }
 }
 
@@ -162,7 +225,7 @@ export class OpenAIProvider extends AIProviderInterface {
     }
   }
 
-  async _execute(method, params, systemPrompt, userPrompt) {
+  async _execute(method, params, systemPrompt, userPrompt, options = {}) {
     if (!this.apiKey) throw new Error('OpenAI API Key not configured')
 
     const cacheKey = makeCacheKey(method, params)
@@ -195,17 +258,21 @@ export class OpenAIProvider extends AIProviderInterface {
     await this._checkBudget()
 
     // 3. Call OpenAI
-    const model = this._getModel(method)
+    const model = options.model || this._getModel(method)
+    const temperature = options.temperature ?? 0.8
     const startTime = Date.now()
+
+    // userContent may be a string (text-only) or an array (vision: text + image_url).
+    const userContent = options.userContent || userPrompt
 
     const completion = await this.client.chat.completions.create({
       model,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+        { role: 'user', content: userContent }
       ],
-      temperature: 0.8
+      temperature
     })
 
     const responseTimeMs = Date.now() - startTime
@@ -443,5 +510,298 @@ Adapt the voice for professional LinkedIn audiences. Use line breaks.`
     const userPrompt = `Repurpose this ${targetFormat || 'content'} into LinkedIn formats:\n\n"${sourceText}"`
 
     return this._execute('repurposeContent', { sourceText: sourceText?.substring(0, 2000), targetFormat }, systemPrompt, userPrompt)
+  }
+
+  // ── Priority 1: YouTube Content Intelligence ──────────────────────────
+
+  async analyzeTitle(payload = {}) {
+    const title = (payload.title || payload.text || '').toString().trim()
+    if (!title) throw new Error('analyzeTitle requires a non-empty title')
+
+    const systemPrompt = `You are a YouTube click-through-rate (CTR) specialist who has analyzed thousands of viral video titles.
+Return ONLY valid JSON with this exact structure:
+{
+  "hookScore": <number 0-100>,
+  "clarityScore": <number 0-100>,
+  "seoScore": <number 0-100>,
+  "emotionalScore": <number 0-100>,
+  "overallScore": <number 0-100>,
+  "suggestions": ["specific actionable improvement 1", "...", "specific actionable improvement 3"],
+  "variants": ["improved title variant 1", "improved title variant 2", "improved title variant 3"]
+}
+Scoring rubric:
+- hookScore: strength of the curiosity/value/emotional trigger in the first 4 words
+- clarityScore: how clearly the topic and payoff are communicated
+- seoScore: presence of searchable keywords and intent match
+- emotionalScore: intensity of emotion (surprise, awe, anger, inspiration)
+- overallScore: weighted average
+Suggestions must be specific to THIS title — no generic advice.
+Variants must each be under 70 characters and CTR-optimized.`
+
+    const userPrompt = `Analyze and improve this YouTube video title:\n\n"${title}"\n\nChannel niche (if known): ${payload.niche || 'general'}`
+
+    return this._execute('analyzeTitle', { title: title.substring(0, 200) }, systemPrompt, userPrompt, {
+      temperature: 0.4,
+    })
+  }
+
+  async analyzeThumbnail(payload = {}) {
+    if (!this.apiKey) throw new Error('OpenAI API Key not configured')
+    const imageDataUrl = payload.imageBase64 || payload.imageDataUrl
+    if (!imageDataUrl) throw new Error('analyzeThumbnail requires imageBase64')
+
+    // Hash the image so cache keys stay small.
+    const imageHash = createHash('sha256').update(imageDataUrl).digest('hex').substring(0, 32)
+    const cacheKey = makeCacheKey('analyzeThumbnail', { imageHash })
+
+    // Cache check
+    try {
+      const cached = await AIResponseCache.findOne({ cacheKey })
+      if (cached) {
+        AIUsageLog.create({
+          method: 'analyzeThumbnail',
+          model: cached.usage?.model || this.premiumModel,
+          promptTokens: 0, completionTokens: 0, totalTokens: 0,
+          estimatedCost: 0, responseTimeMs: 0,
+          success: true, cacheHit: true, params: { imageHash }
+        }).catch(() => {})
+        console.log('[AI Cache HIT] analyzeThumbnail — returning cached response')
+        return cached.response
+      }
+    } catch (cacheErr) {
+      console.warn('[AI Cache] Read error:', cacheErr.message)
+    }
+
+    await this._checkBudget()
+
+    const model = this.premiumModel // gpt-4o supports vision
+    const startTime = Date.now()
+
+    const systemPrompt = `You are a YouTube thumbnail CTR expert who uses visual design principles, attention economics, and emotional psychology to predict click-through rates.
+Return ONLY valid JSON with this exact structure:
+{
+  "ctr": <number 0-100, predicted CTR percentile vs similar-sized channels>,
+  "attention": <number 0-100, focal-point clarity and visual hierarchy>,
+  "clutter": <number 0-100, LOWER is better — visual noise/distractors>,
+  "face": <number 0-100, face presence, emotion intensity, eye contact quality>,
+  "contrast": <number 0-100, color/tonal contrast and legibility on mobile>,
+  "improvements": ["specific actionable improvement 1", "...", "specific actionable improvement 3"]
+}
+Be rigorous and analytical. Improvements must reference specific elements visible in the image (e.g. text overlay size, face position, background noise, color clashes).`
+
+    const userContent = [
+      { type: 'text', text: 'Analyze this YouTube thumbnail and predict its CTR performance.' },
+      { type: 'image_url', image_url: { url: imageDataUrl } },
+    ]
+
+    const completion = await this.client.chat.completions.create({
+      model,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+      temperature: 0.3,
+    })
+
+    const responseTimeMs = Date.now() - startTime
+    const rawContent = completion.choices?.[0]?.message?.content || '{}'
+    const usage = completion.usage || {}
+    const promptTokens = usage.prompt_tokens || 0
+    const completionTokens = usage.completion_tokens || 0
+    const totalTokens = usage.total_tokens || promptTokens + completionTokens
+    const cost = estimateCost(model, promptTokens, completionTokens)
+
+    const parsed = parseJSON(rawContent)
+    if (!parsed || !VALIDATORS.analyzeThumbnail(parsed)) {
+      AIUsageLog.create({
+        method: 'analyzeThumbnail', model, promptTokens, completionTokens, totalTokens,
+        estimatedCost: cost, responseTimeMs,
+        success: false, error: 'Invalid JSON structure from OpenAI',
+        cacheHit: false, params: { imageHash }
+      }).catch(() => {})
+      throw new Error('OpenAI returned invalid JSON structure for analyzeThumbnail')
+    }
+
+    // Cache + log
+    const expiresAt = new Date(Date.now() + (CACHE_TTL.analyzeThumbnail || 48) * 60 * 60 * 1000)
+    try {
+      await AIResponseCache.findOneAndUpdate(
+        { cacheKey },
+        {
+          cacheKey, method: 'analyzeThumbnail', params: { imageHash },
+          response: parsed, provider: 'openai',
+          usage: { promptTokens, completionTokens, totalTokens, model, estimatedCost: cost },
+          responseTimeMs, expiresAt
+        },
+        { upsert: true, new: true }
+      )
+    } catch (cacheErr) {
+      console.warn('[AI Cache] Write error:', cacheErr.message)
+    }
+
+    AIUsageLog.create({
+      method: 'analyzeThumbnail', model, promptTokens, completionTokens, totalTokens,
+      estimatedCost: cost, responseTimeMs,
+      success: true, cacheHit: false, params: { imageHash }
+    }).catch(() => {})
+
+    console.log(`[AI OpenAI] analyzeThumbnail — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
+    return parsed
+  }
+
+  async generateVideoIdeas(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    const topVideos = videos.slice(0, 10).map((v) => ({
+      title: v.title,
+      views: v.views,
+      likes: v.likes,
+      comments: v.comments,
+      publishedAt: v.publishedAt,
+    }))
+
+    const systemPrompt = `You are a YouTube content strategist generating video concepts tuned to a specific channel's niche and historical performance.
+Return ONLY valid JSON with this exact structure:
+{
+  "ideas": [
+    {
+      "id": <integer starting at 1>,
+      "title": "<clickable CTR-optimized title under 70 chars>",
+      "whyRecommend": "<1-2 sentence strategic rationale referencing the channel's actual content patterns>",
+      "predictedViews": "<formatted like '450K' or '1.2M'>",
+      "predictedEngagement": "<formatted like '32K likes'>",
+      "difficulty": <number 0-100, production complexity>,
+      "opportunity": <number 0-100, gap-quality × audience demand>,
+      "trendScore": <number 0-100, current trend velocity>,
+      "tag": "<one of exactly: 'Viral Opportunity' | 'High Potential' | 'Audience Favorite' | 'Evergreen'>",
+      "badgeColor": "<one of exactly these Tailwind class strings:
+         'bg-red-50 text-red-600 border-red-100' (for Viral Opportunity)
+         'bg-blue-50 text-blue-600 border-blue-100' (for High Potential)
+         'bg-purple-50 text-purple-600 border-purple-100' (for Audience Favorite)
+         'bg-emerald-50 text-emerald-600 border-emerald-100' (for Evergreen)>"
+    }
+  ]
+}
+Generate exactly 10 ideas. Each idea must have a unique tag/badge combination aligned to the mapping above.
+Predicted views/engagement should be realistic for a channel of this size.`
+
+    const userPrompt = `Channel: ${channel.title || '(unknown)'}
+Handle: ${channel.handle || '(none)'}
+Niche / description: ${(channel.description || '(none provided)').substring(0, 400)}
+Subscribers: ${channel.subscribers || 0}
+Total videos: ${channel.totalVideos || 0}
+
+Recent top videos:
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views, ${v.likes || 0} likes`).join('\n')
+      : '  (no video data available)'}
+
+Generate 10 new video concepts aligned with this channel's audience and performance patterns.`
+
+    return this._execute(
+      'generateVideoIdeas',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.7 }
+    )
+  }
+
+  async generateShortsIdeas(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    const topVideos = videos.slice(0, 10).map((v) => ({
+      title: v.title,
+      views: v.views,
+    }))
+
+    const systemPrompt = `You are a YouTube Shorts / Instagram Reels viral strategist specializing in the first 3 seconds hook, retention curves, and visual pattern interrupts.
+Return ONLY valid JSON with this exact structure:
+{
+  "ideas": [
+    {
+      "id": <integer starting at 1>,
+      "title": "<Short concept title under 50 chars>",
+      "hook": "<0-3s spoken/text hook — must instantly create curiosity or stakes>",
+      "first3s": "<precise visual action described for the first 3 seconds>",
+      "cta": "<retention-driven CTA at the end of the Short>",
+      "retention": "<formatted like '87%'>",
+      "viralScore": <number 0-100>,
+      "trendStrength": <number 0-100>
+    }
+  ]
+}
+Generate exactly 3 high-impact Shorts concepts.
+Retention should be a realistic percentage between 70% and 95%.`
+
+    const userPrompt = `Channel: ${channel.title || '(unknown)'}
+Niche / description: ${(channel.description || '(none provided)').substring(0, 400)}
+Subscribers: ${channel.subscribers || 0}
+
+Recent videos for context:
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views`).join('\n')
+      : '  (no video data available)'}
+
+Generate 3 viral Shorts concepts for this channel.`
+
+    return this._execute(
+      'generateShortsIdeas',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.8 }
+    )
+  }
+
+  async getStrategistTips(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    // Compute a few basic signals from real data so tips feel grounded.
+    const totalViews = (channel.totalViews || 0)
+    const totalVideos = (channel.totalVideos || 0)
+    const avgViewsPerVideo = totalVideos > 0 ? Math.round(totalViews / totalVideos) : 0
+    const recentUploads = videos.length
+    const lastVideoDate = videos[0]?.publishedAt || null
+
+    const systemPrompt = `You are a YouTube growth strategist advising a creator in real time.
+Return ONLY valid JSON with this exact structure:
+{
+  "tips": [
+    {
+      "id": <integer starting at 1>,
+      "type": "<one of exactly: 'positive' | 'warning' | 'info'>",
+      "text": "<one concrete, specific, actionable sentence — under 200 chars>"
+    }
+  ]
+}
+Generate exactly 5 tips. Mix of types — at least 1 positive, 1 warning, 1 info.
+Each tip must reference real signals (subscriber count, upload cadence, average views, niche, recent video performance) and give a specific next action — not generic platitudes.`
+
+    const userPrompt = `Channel: ${channel.title || '(unknown)'}
+Niche: ${(channel.description || '(none)').substring(0, 300)}
+Subscribers: ${channel.subscribers || 0}
+Total views: ${totalViews}
+Total videos: ${totalVideos}
+Average views per video: ${avgViewsPerVideo}
+Recent uploads tracked: ${recentUploads}
+Last upload: ${lastVideoDate ? new Date(lastVideoDate).toISOString() : '(none)'}
+
+Generate 5 prioritized strategist tips grounded in this data.`
+
+    return this._execute(
+      'getStrategistTips',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.6 }
+    )
   }
 }
