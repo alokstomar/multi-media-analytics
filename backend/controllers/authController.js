@@ -15,11 +15,11 @@ function signToken(userId) {
 
 // Helper to set cookie
 function sendCookieToken(res, token) {
-  const secure = process.env.NODE_ENV === 'production'
+  const secure = process.env.NODE_ENV === 'production' || !!process.env.VERCEL
   res.cookie('token', token, {
     httpOnly: true,
     secure,
-    sameSite: 'lax',
+    sameSite: secure ? 'none' : 'lax',
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   })
@@ -148,10 +148,16 @@ export async function login(req, res, next) {
     const userObj = user.toObject()
     delete userObj.password
 
+    let workspace = null
+    if (user.activeWorkspaceId) {
+      workspace = await Workspace.findOne({ _id: user.activeWorkspaceId, isDeleted: false })
+    }
+
     res.json({
       success: true,
       data: {
         user: userObj,
+        activeWorkspace: workspace,
       }
     })
   } catch (err) { next(err) }
@@ -162,9 +168,11 @@ export async function login(req, res, next) {
  */
 export async function logout(req, res, next) {
   try {
+    const secure = process.env.NODE_ENV === 'production' || !!process.env.VERCEL
     res.clearCookie('token', {
       httpOnly: true,
-      sameSite: 'lax',
+      secure,
+      sameSite: secure ? 'none' : 'lax',
       path: '/'
     })
     res.json({ success: true, message: 'Logged out successfully.' })

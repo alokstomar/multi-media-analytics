@@ -82,9 +82,14 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     setError(null)
     const res = await api.post('/api/auth/login', { email, password })
-    if (res.data.success) {
+    if (res.data?.success) {
       setUser(res.data.data.user)
-      await fetchMe() // re-fetch to get activeWorkspace populated
+      if (res.data.data.activeWorkspace) {
+        setActiveWorkspace(res.data.data.activeWorkspace)
+        localStorage.setItem('activeWorkspaceId', res.data.data.activeWorkspace._id)
+      } else {
+        localStorage.removeItem('activeWorkspaceId')
+      }
     }
     return res.data
   }

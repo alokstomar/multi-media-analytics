@@ -1,7 +1,14 @@
 import axios from 'axios'
 
+// In production (Vercel), requests go to same origin ("/api/...") and a
+// vercel.json rewrite transparently proxies them to the backend so cookies
+// stay first-party. In dev, talk to the local backend directly. Allow
+// VITE_API_BASE_URL to override in either case; an explicit empty string is
+// honored (use ??, not ||).
+const DEFAULT_BASE_URL = import.meta.env.PROD ? '' : 'http://localhost:5000'
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000',
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL,
   timeout: 15000,
   withCredentials: true,
 })
