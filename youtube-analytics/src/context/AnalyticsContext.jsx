@@ -8,6 +8,7 @@ import {
   refreshChannel as apiRefreshChannel,
 } from '../services/api'
 import { mapChannelToSelector, transformAnalytics } from '../utils/transformAnalytics'
+import { debugLog } from '../utils/debugState'
 
 const AnalyticsContext = createContext()
 
@@ -42,6 +43,16 @@ export function AnalyticsProvider({ children }) {
   const timerRef = useRef(null)
   const channelsTimerRef = useRef(null)
   const transitionTimerRef = useRef(null)
+  // Refs that hold mutable values used inside useCallback deps so the callback
+  // identity stays stable across renders (prevents the prior circular loop).
+  const lastRefreshRef = useRef(0)
+  const allChannelsRef = useRef([])
+  const isInitialLoadRef = useRef(true)
+  const activeChannelIdRef = useRef(null)
+
+  // Keep refs in sync with state every render — cheap, idempotent.
+  allChannelsRef.current = allChannels
+  activeChannelIdRef.current = activeChannelId
 
   // Load channels on mount
   useEffect(() => {
@@ -92,6 +103,7 @@ export function AnalyticsProvider({ children }) {
 
   async function loadChannelsFromAPI() {
     setChannelsLoading(true)
+    debugLog('analytics:bootstrap', 'loadChannelsFromAPI start')
     try {
       const res = await getChannels()
       const raw = res.data || []
@@ -112,26 +124,48 @@ export function AnalyticsProvider({ children }) {
       })
 
       const mapped = channelsWithMeta.map((ch, i) => mapChannelToSelector(ch, i))
-      setAllChannels(mapped.length ? mapped : FALLBACK_CHANNELS)
-      setLastChannelsRefresh(Date.now())
+
+      // Only fall back to the "no channels" placeholder when truly empty AND no
+      // existing channels to preserve. During a refresh that momentarily returns
+      // empty, keep the previous list so the UI doesn't flicker to "No channels".
+      const hasExisting = allChannelsRef.current.some((c) => c.id !== 'demo')
+      if (mapped.length === 0 && (!hasExisting || isInitialLoadRef.current)) {
+        debugLog('analytics:bootstrap', 'no channels — using FALLBACK_CHANNELS')
+        setAllChannels(FALLBACK_CHANNELS)
+      } else if (mapped.length === 0) {
+        debugLog('analytics:bootstrap', 'refresh returned empty — preserving previous channels')
+        // keep previous allChannels
+      } else {
+        setAllChannels(mapped)
+      }
+      lastRefreshRef.current = Date.now()
+      setLastChannelsRefresh(lastRefreshRef.current)
+      isInitialLoadRef.current = false
 
       // Auto-select first real channel if none or invalid is selected
       const realChannels = mapped.filter((c) => c.id !== 'demo')
       if (realChannels.length) {
         // If current active is not in new channels, reset it to first channel
-        const isCurrentActiveValid = realChannels.some((c) => c.id === activeChannelId)
-        if (!activeChannelId || !isCurrentActiveValid) {
+        const isCurrentActiveValid = realChannels.some((c) => c.id === activeChannelIdRef.current)
+        if (!activeChannelIdRef.current || !isCurrentActiveValid) {
+          debugLog('analytics:bootstrap', 'auto-selecting first channel', realChannels[0].id)
           setActiveChannelId(realChannels[0].id)
           fetchChannelData(realChannels[0].id)
         }
-      } else {
+      } else if (isInitialLoadRef.current === false && !hasExisting) {
+        // first ever load with no channels at all — show demo placeholder
         setActiveChannelId('demo')
         setChannelData(getEmptyData())
       }
-    } catch {
-      setAllChannels(FALLBACK_CHANNELS)
-      setActiveChannelId('demo')
-      setChannelData(getEmptyData())
+    } catch (err) {
+      // DO NOT wipe real channel data on transient error. Previous channels stay
+      // visible so the user doesn't see "No channels yet" during a network blip.
+      debugLog('analytics:bootstrap', 'loadChannelsFromAPI error (preserving previous state)', err?.message)
+      if (isInitialLoadRef.current && allChannelsRef.current.length === 0) {
+        setAllChannels(FALLBACK_CHANNELS)
+        setActiveChannelId('demo')
+        setChannelData(getEmptyData())
+      }
     } finally {
       setChannelsLoading(false)
     }
@@ -176,19 +210,29 @@ export function AnalyticsProvider({ children }) {
 
   const activeChannel = allChannels.find((c) => c.id === activeChannelId) || allChannels[0] || FALLBACK_CHANNELS[0]
 
-  // Public method to refresh channel list after add/delete or on-mount stale check
+  // Public method to refresh channel list after add/delete or on-mount stale check.
+  // IMPORTANT: deps are intentionally only [fetchChannelData]. All other inputs
+  // (allChannels, lastChannelsRefresh, activeChannelId) are read from refs so this
+  // callback keeps a stable identity — preventing the recursive re-render loop
+  // where consumers' useEffect deps would otherwise fire on every channel update.
   const refreshChannels = useCallback(async (force = false) => {
-    const isStale = Date.now() - lastChannelsRefresh > 60000
-    const isEmpty = allChannels.length === 0 || (allChannels.length === 1 && allChannels[0].id === 'demo')
-    
+    const last = lastRefreshRef.current
+    const current = allChannelsRef.current
+    const activeId = activeChannelIdRef.current
+    const isStale = last === 0 || Date.now() - last > 60_000
+    const isEmpty = current.length === 0 || (current.length === 1 && current[0].id === 'demo')
+
     if (force || isEmpty || isStale) {
+      debugLog('analytics:refresh', 'triggered', { force, isEmpty, isStale })
       await loadChannelsFromAPI()
       // Re-fetch data for currently active channel
-      if (activeChannelId && activeChannelId !== 'demo') {
-        await fetchChannelData(activeChannelId)
+      if (activeId && activeId !== 'demo') {
+        await fetchChannelData(activeId)
       }
+    } else {
+      debugLog('analytics:refresh', 'skipped (not stale, not empty, not forced)')
     }
-  }, [activeChannelId, fetchChannelData, lastChannelsRefresh, allChannels])
+  }, [fetchChannelData])
 
   // Context-level wrapper for adding a channel
   const addChannel = useCallback(async (input) => {

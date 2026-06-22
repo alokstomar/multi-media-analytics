@@ -42,11 +42,6 @@ export default function Analytics() {
 
   const isDemo = !activeChannel || activeChannel.id === 'demo' || activeChannel.id === 'demo_ig' || activeChannel.id === 'demo_tt' || activeChannel.id === 'demo_li'
 
-  // Refresh channels cache check on mount
-  useEffect(() => {
-    if (refreshChannels) refreshChannels()
-  }, [refreshChannels])
-
   // Check URL parameter for portfolio mode redirection
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -55,12 +50,16 @@ export default function Analytics() {
     }
   }, [])
 
-  // Auto-initialize with all connected channels
+  // Auto-initialize with all connected channels.
+  // Deps are primitives only — `allChannels` is unstable (new array identity every
+  // context tick), so we use `.length` to re-fire only when the count changes.
+  const channelCount = allChannels?.length || 0
   useEffect(() => {
     if (allChannels && allChannels.length && !selectedChannelIds.length) {
       setSelectedChannelIds(allChannels.map(c => c.id).filter(id => id !== 'demo' && id !== 'demo_ig' && id !== 'demo_tt' && id !== 'demo_li'))
     }
-  }, [allChannels, selectedChannelIds.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelCount, selectedChannelIds.length])
 
   const handleToggleChannel = (id) => {
     setSelectedChannelIds(prev => 

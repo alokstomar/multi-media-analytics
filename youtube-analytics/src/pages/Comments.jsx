@@ -81,6 +81,19 @@ const cardShadow = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)
 const tip = { backgroundColor: '#fff', border: '1px solid #F3F4F6', borderRadius: '12px', boxShadow: '0 8px 24px -4px rgba(0,0,0,0.08)', padding: '8px 12px', fontSize: '12px' }
 const iconMap = { chat: MessageCircle, smile: Smile, star: Sparkles, shield: ShieldAlert, reply: Reply, trend: TrendingUp, users: Users }
 
+function CommentSkeleton() {
+  return (
+    <div className="animate-pulse space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-28 rounded-[20px] bg-gray-100" />
+        ))}
+      </div>
+      <div className="h-96 rounded-[20px] bg-gray-100" />
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────
 export default function Comments() {
   const { selectedPlatform } = usePlatform()
@@ -88,7 +101,6 @@ export default function Comments() {
     activeAccountId: activeChannelId,
     activeAccount: activeChannel,
     accounts: allChannels,
-    refreshAccounts: refreshChannels,
   } = usePlatformAdapter()
 
   // Mode
@@ -118,17 +130,16 @@ export default function Comments() {
   const [error, setError] = useState('')
   const [syncStatus, setSyncStatus] = useState(null) // cache metadata
 
-  // On-mount: refresh global channel cache
-  useEffect(() => {
-    refreshChannels()
-  }, [refreshChannels])
-
-  // Auto-select all channels for portfolio mode
+  // Auto-select all channels for portfolio mode.
+  // Deps are primitives only — `allChannels` is unstable (new array identity every
+  // context tick), so we use `.length` to re-fire only when the count changes.
+  const channelCount = allChannels?.length || 0
   useEffect(() => {
     if (allChannels.length && !selectedChannelIds.length) {
       setSelectedChannelIds(allChannels.map((c) => c.id).filter((id) => id !== 'demo' && id !== 'demo_ig' && id !== 'demo_tt' && id !== 'demo_li'))
     }
-  }, [allChannels, selectedChannelIds.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelCount, selectedChannelIds.length])
 
   // Debounce search input 300ms
   useEffect(() => {
@@ -454,37 +465,88 @@ export default function Comments() {
         })
         setSyncStatus(syncStatusVal)
       } else {
-        const isDemoId = !activeChannelId || activeChannelId === 'demo'
-        if (isDemoId) {
-          setComments([])
-          setSummary(null)
-          setSyncStatus(null)
-          return
+        if (portfolioMode) {
+          const ids = selectedChannelIds.filter((id) => id !== 'demo' && id !== 'demo_ig' && id !== 'demo_tt' && id !== 'demo_li')
+          if (!ids.length) {
+            setComments([])
+            setSummary(null)
+            setSyncStatus(null)
+            setPagination({ page: 1, total: 0, totalPages: 1 })
+            return
+          }
+
+          const [commentsRes, summaryRes] = await Promise.all([
+            getPortfolioComments(ids, {
+              page: currentPage,
+              limit,
+              sentiment: sentimentParam,
+              search: debouncedSearch || undefined,
+              timeRange: timeRange || undefined,
+              maxVideos,
+              maxVolume,
+              language: language || undefined,
+            }),
+            getPortfolioCommentsSummary(ids, { maxVideos, maxVolume }),
+          ])
+
+          setComments(commentsRes.data || [])
+          setPagination(commentsRes.pagination || { page: 1, total: 0, totalPages: 1 })
+
+          // Reconstruct cache status from selected channels summaries
+          const portfolioData = summaryRes.data || {}
+          const summariesList = Object.values(portfolioData.perChannel || {})
+          const totalCached = summariesList.reduce((s, x) => s + (x.cache?.totalCached || 0), 0)
+          const videosScanned = summariesList.reduce((s, x) => s + (x.cache?.videosScanned || 0), 0)
+          const lastFetchedAt = summariesList.reduce((latest, x) => {
+            const d = x.cache?.lastFetchedAt
+            if (!d) return latest
+            if (!latest) return d
+            return new Date(d) > new Date(latest) ? d : latest
+          }, null)
+          const isStale = summariesList.some((x) => x.cache?.isStale)
+
+          setSummary(portfolioData)
+          setSyncStatus({
+            totalCached,
+            videosScanned,
+            lastFetchedAt,
+            isStale,
+            channelCount: ids.length,
+          })
+        } else {
+          const isDemoId = !activeChannelId || activeChannelId === 'demo'
+          if (isDemoId) {
+            setComments([])
+            setSummary(null)
+            setSyncStatus(null)
+            return
+          }
+
+          const [commentsRes, summaryRes] = await Promise.all([
+            getComments(activeChannelId, {
+              page: currentPage,
+              limit,
+              sentiment: sentimentParam,
+              search: debouncedSearch || undefined,
+              timeRange: timeRange || undefined,
+              maxVideos,
+              maxVolume,
+              language: language || undefined,
+            }),
+            getCommentsSummary(activeChannelId, { maxVideos, maxVolume }),
+          ])
+
+          setComments(commentsRes.data || [])
+          setPagination(commentsRes.pagination || { page: 1, total: 0, totalPages: 1 })
+          setSummary(summaryRes.data || null)
+          setSyncStatus(summaryRes.data?.cache || null)
         }
-
-        const [commentsRes, summaryRes] = await Promise.all([
-          getComments(activeChannelId, {
-            page: currentPage,
-            limit,
-            sentiment: sentimentParam,
-            search: debouncedSearch || undefined,
-            timeRange: timeRange || undefined,
-            maxVideos,
-            maxVolume,
-            language: language || undefined,
-          }),
-          getCommentsSummary(activeChannelId, { maxVideos, maxVolume }),
-        ])
-
-        setComments(commentsRes.data || [])
-        setPagination(commentsRes.pagination || { page: 1, total: 0, totalPages: 1 })
-        setSummary(summaryRes.data || null)
-        setSyncStatus(summaryRes.data?.cache || null)
       }
     } catch (err) {
-      const msg = err.response?.data?.error || 'Failed to load comments'
+      const msg = err.response?.data?.error || err.message || 'Failed to load comments'
       setError(msg)
       setComments([])
+      setSummary(null)
     } finally {
       setLoading(false)
     }
@@ -694,12 +756,9 @@ export default function Comments() {
       )}
 
       <AnimatePresence mode="wait">
-        {loading && !comments.length ? (
-          <motion.div key="skel" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="animate-pulse space-y-4">
-            <div className="grid grid-cols-5 gap-4">{Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-28 rounded-[20px] bg-gray-100" />
-            ))}</div>
-            <div className="h-96 rounded-[20px] bg-gray-100" />
+        {loading ? (
+          <motion.div key="skel" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <CommentSkeleton />
           </motion.div>
         ) : (
           <motion.div
@@ -812,16 +871,22 @@ export default function Comments() {
                   {!comments.length ? (
                     <div className="py-16 text-center text-gray-400">
                       <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                      <p className="font-medium">No comments in cache</p>
-                      <p className="text-sm mt-1">Click "Sync from {selectedPlatform === 'youtube' ? 'YouTube' : 'Instagram'}" to fetch and analyze real comments.</p>
-                      <button
-                        onClick={handleRefresh}
-                        disabled={refreshing}
-                        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                      >
-                        <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                        Sync Now
-                      </button>
+                      <p className="font-medium">
+                        {error ? 'No comments available.' : (portfolioMode ? 'No comments found for selected channels.' : 'No comments found for this channel.')}
+                      </p>
+                      {!error && (
+                        <>
+                          <p className="text-sm mt-1">Click "Sync from {selectedPlatform === 'youtube' ? 'YouTube' : 'Instagram'}" to fetch and analyze real comments.</p>
+                          <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                            Sync Now
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <>

@@ -28,20 +28,19 @@ const FUTURE_MODULES = [
 export default function PortfolioIntelligence() {
   const [range, setRange] = useState('30D')
   const { selectedPlatform } = usePlatform()
-  const { accounts: allChannels, refreshAccounts: refreshChannels } = usePlatformAdapter()
+  const { accounts: allChannels } = usePlatformAdapter()
   const [selectedChannelIds, setSelectedChannelIds] = useState([])
 
-  // Refresh channels cache check on mount
-  useEffect(() => {
-    refreshChannels()
-  }, [refreshChannels])
-
-  // Auto-select all channels on mount (dedicated portfolio mode)
+  // Auto-select all channels on mount (dedicated portfolio mode).
+  // Deps are primitives only — `allChannels` is unstable (new array identity every
+  // context tick), so we use `.length` to re-fire only when the count changes.
+  const channelCount = allChannels?.length || 0
   useEffect(() => {
     if (allChannels && allChannels.length && !selectedChannelIds.length) {
       setSelectedChannelIds(allChannels.map(c => c.id).filter(id => id !== 'demo' && id !== 'demo_ig' && id !== 'demo_tt' && id !== 'demo_li'))
     }
-  }, [allChannels, selectedChannelIds.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelCount, selectedChannelIds.length])
 
   const handleToggleChannel = (id) => {
     setSelectedChannelIds(prev =>

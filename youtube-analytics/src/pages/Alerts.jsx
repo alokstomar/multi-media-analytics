@@ -40,17 +40,36 @@ export default function Alerts() {
   } = usePlatformAdapter()
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState('all')
-  const [alerts, setAlerts] = useState([])
   const [visibleCount, setVisibleCount] = useState(4)
 
-  const overview = channelData?._raw?.overview || {}
+  // Read/dismissed state tracked separately as Sets — avoids mirroring the
+  // derived `allAlerts` array into useState (which caused the React #185 loop).
+  const [readIds, setReadIds] = useState(() => new Set())
+  const [dismissedIds, setDismissedIds] = useState(() => new Set())
 
-  // Generate alerts from insights and analytics data
+  const overview = channelData?._raw?.overview || {}
+  // Extract primitive values up front so useMemo deps below can be primitives
+  // (the whole `channelData` / `overview` objects are unstable references and
+  // would re-fire the memo every render).
+  const viewsGrowth = overview.viewsGrowth || overview.reachGrowth || 0
+  const engagementRate = overview.engagementRate || 0
+  const subscribers = overview.subscribers || overview.followers || 0
+  const topVideos = channelData?._raw?.topVideos || channelData?._raw?.posts || []
+  // Stable string signature of topVideos so the memo dep changes only when the
+  // underlying content changes — not on every render due to a new array ref.
+  const topVideosSig = JSON.stringify(topVideos?.map((v) => ({
+    t: v?.title || v?.caption || '',
+    x: v?.views || v?.reach || 0,
+    th: v?.thumbnail || '',
+  })))
+
+  // Generate alerts from insights and analytics data.
+  // Deps are primitives only — never the whole `channelData` object.
   const allAlerts = useMemo(() => {
-    const growth = overview.viewsGrowth || overview.reachGrowth || 0
-    const eng = overview.engagementRate || 0
-    const subs = overview.subscribers || overview.followers || 0
-    const topVids = channelData?._raw?.topVideos || channelData?._raw?.posts || []
+    const growth = viewsGrowth
+    const eng = engagementRate
+    const subs = subscribers
+    const topVids = topVideos
 
     const generated = []
     const metricName = selectedPlatform === 'instagram' ? 'Reach' : 'Views'
@@ -179,7 +198,44 @@ export default function Alerts() {
     })
 
     return generated
-  }, [overview, channelData])
+  }, [viewsGrowth, engagementRate, subscribers, topVideosSig, selectedPlatform, activeChannelId])
+
+  // Reset read/dismissed state when active channel changes — but DO NOT mirror
+  // allAlerts into useState (that was the React #185 recursive loop).
+  useEffect(() => {
+    setReadIds(new Set())
+    setDismissedIds(new Set())
+    setVisibleCount(4)
+  }, [activeChannelId])
+
+  const markAllRead = () => {
+    setReadIds(new Set(allAlerts.map((a) => a.id)))
+  }
+
+  const toggleReadStatus = (id) => {
+    setReadIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const dismissAlert = (id) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }
+
+  // Derive the working `alerts` list directly from allAlerts + Sets — pure render.
+  const alerts = useMemo(
+    () => allAlerts
+      .filter((a) => !dismissedIds.has(a.id))
+      .map((a) => ({ ...a, read: readIds.has(a.id) })),
+    [allAlerts, readIds, dismissedIds]
+  )
 
   // Generate alert stats from analytics
   const stats = useMemo(() => {
@@ -196,32 +252,15 @@ export default function Alerts() {
       { label: 'AI Insights', value: String(aiCount), color: '#8B5CF6', icon: 'sparkle', spark: [2, 4, 3, 5, 6, 5, aiCount], trend: '+10%', up: true },
       { label: 'Resolved', value: String(resolvedCount), color: '#10B981', icon: 'check', spark: [6, 8, 10, 12, 14, 16, resolvedCount], trend: '+22%', up: true },
     ]
-  }, [alerts, channelData])
-
-  // Sync state with memoized alerts on active channel changes
-  useEffect(() => {
-    setAlerts(allAlerts)
-    setVisibleCount(4)
-  }, [allAlerts])
-
-  const markAllRead = () => {
-    setAlerts(prev => prev.map(a => ({ ...a, read: true })))
-  }
-
-  const toggleReadStatus = (id) => {
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, read: !a.read } : a))
-  }
-
-  const dismissAlert = (id) => {
-    setAlerts(prev => prev.filter(a => a.id !== id))
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alerts, channelData?.aiInsights?.length])
 
   const filteredAlerts = useMemo(() => {
     let result = activeTab === 'all' ? alerts : alerts.filter((a) => a.type === activeTab);
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter(a => 
-        a.title?.toLowerCase().includes(q) || 
+      result = result.filter(a =>
+        a.title?.toLowerCase().includes(q) ||
         a.desc?.toLowerCase().includes(q) ||
         a.category?.toLowerCase().includes(q)
       );

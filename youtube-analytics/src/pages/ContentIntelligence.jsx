@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
@@ -24,14 +23,7 @@ export default function ContentIntelligence() {
     loading: isTransitioning,
     analyticsData: channelData,
     activeAccount: activeChannel,
-    refreshAccounts: refreshChannels
   } = usePlatformAdapter()
-
-  // Refresh channels cache check on mount
-  useEffect(() => {
-    if (refreshChannels) refreshChannels()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   /* Loading skeleton placeholder */
   const Skel = () => (
