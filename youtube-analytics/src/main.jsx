@@ -7,6 +7,7 @@ import { PlatformProvider } from './context/PlatformContext'
 import { AccountProvider } from './context/AccountContext'
 import { ChannelProvider } from './context/ChannelContext'
 import { AnalyticsProvider } from './context/AnalyticsContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 import App from './App.jsx'
 
@@ -22,20 +23,22 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthProvider>
-          <PlatformProvider>
-            <AccountProvider>
-              <AnalyticsProvider>
-                <ChannelProvider>
-                  <App />
-                </ChannelProvider>
-              </AnalyticsProvider>
-            </AccountProvider>
-          </PlatformProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <AuthProvider>
+            <PlatformProvider>
+              <AccountProvider>
+                <AnalyticsProvider>
+                  <ChannelProvider>
+                    <App />
+                  </ChannelProvider>
+                </AnalyticsProvider>
+              </AccountProvider>
+            </PlatformProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

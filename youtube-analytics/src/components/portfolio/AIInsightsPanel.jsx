@@ -12,11 +12,31 @@ export default function AIInsightsPanel({ selectedIds }) {
   const { accounts: allChannels } = usePlatformAdapter()
 
   const activeChannels = useMemo(() => {
-    return allChannels.filter(c => selectedIds.includes(c.id))
+    return (allChannels || []).filter(c => selectedIds.includes(c.id))
   }, [allChannels, selectedIds])
 
   function generateFallback() {
-    if (activeChannels.length === 0) return null
+    if (!activeChannels || activeChannels.length === 0) {
+      return {
+        healthScore: 0,
+        stabilityScore: 0,
+        riskLevel: 'Low',
+        riskBadgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-100/50',
+        growthMomentum: '+0%',
+        bestPerformingCh: null,
+        fastestGrowingCh: null,
+        highestEngagementCh: null,
+        highestRevenueCh: null,
+        mostConsistentCh: null,
+        subConcentration: 0,
+        viewConcentration: 0,
+        revenueDependency: 0,
+        audienceDiversification: 0,
+        recommendations: [],
+        actionCenter: [],
+        growthRadar: []
+      }
+    }
 
     // 1. Core aggregates
     let totalSubs = 0
@@ -240,7 +260,25 @@ export default function AIInsightsPanel({ selectedIds }) {
     )
   }
 
-  const report = csoReport
+  const report = csoReport || {
+    healthScore: 0,
+    stabilityScore: 0,
+    riskLevel: 'Low',
+    riskBadgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-100/50',
+    growthMomentum: '+0%',
+    bestPerformingCh: null,
+    fastestGrowingCh: null,
+    highestEngagementCh: null,
+    highestRevenueCh: null,
+    mostConsistentCh: null,
+    subConcentration: 0,
+    viewConcentration: 0,
+    revenueDependency: 0,
+    audienceDiversification: 0,
+    recommendations: [],
+    actionCenter: [],
+    growthRadar: []
+  }
 
   return (
     <motion.div
@@ -269,16 +307,16 @@ export default function AIInsightsPanel({ selectedIds }) {
         <div className="grid grid-cols-3 gap-2.5">
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5">
             <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Health Score</span>
-            <p className="text-[14px] font-bold text-gray-900 mt-0.5">{report.healthScore}/100</p>
+            <p className="text-[14px] font-bold text-gray-900 mt-0.5">{report?.healthScore}/100</p>
           </div>
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5">
             <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Momentum</span>
-            <p className="text-[14px] font-bold text-emerald-600 mt-0.5">{report.growthMomentum}</p>
+            <p className="text-[14px] font-bold text-emerald-600 mt-0.5">{report?.growthMomentum}</p>
           </div>
           <div className="bg-gray-50 border border-gray-100 rounded-xl p-2.5">
             <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">CSO Risk</span>
-            <span className={`inline-flex rounded text-[10px] font-bold uppercase mt-0.5 px-1 ${report.riskBadgeColor}`}>
-              {report.riskLevel}
+            <span className={`inline-flex rounded text-[10px] font-bold uppercase mt-0.5 px-1 ${report?.riskBadgeColor}`}>
+              {report?.riskLevel}
             </span>
           </div>
         </div>
@@ -305,9 +343,9 @@ export default function AIInsightsPanel({ selectedIds }) {
             <p className="text-[13px] font-bold text-gray-900 tracking-tight leading-none mt-1">Portfolio Stability Index</p>
           </div>
           <div className="text-right">
-            <span className="text-xl font-bold text-indigo-600 block leading-none">{report.stabilityScore}/100</span>
-            <span className={`inline-flex rounded-full text-[8px] font-bold px-1.5 py-[1px] mt-1 border ${report.riskBadgeColor}`}>
-              {report.riskLevel} Risk
+            <span className="text-xl font-bold text-indigo-600 block leading-none">{report?.stabilityScore}/100</span>
+            <span className={`inline-flex rounded-full text-[8px] font-bold px-1.5 py-[1px] mt-1 border ${report?.riskBadgeColor}`}>
+              {report?.riskLevel} Risk
             </span>
           </div>
         </div>
@@ -315,10 +353,10 @@ export default function AIInsightsPanel({ selectedIds }) {
         {/* 4 stability metrics */}
         <div className="grid grid-cols-2 gap-3 text-[10px]">
           {[
-            { label: selectedPlatform === 'instagram' ? 'Follower Share' : 'Subscriber Share', val: report.subConcentration, desc: 'concentration density' },
-            { label: selectedPlatform === 'instagram' ? 'Reach Share' : 'Views Share', val: report.viewConcentration, desc: 'traffic concentration' },
-            { label: selectedPlatform === 'instagram' ? 'Direct Actions' : 'Revenue Dependency', val: report.revenueDependency, desc: 'earnings concentration' },
-            { label: 'Audience Diversity', val: report.audienceDiversification, desc: 'segment spread index' }
+            { label: selectedPlatform === 'instagram' ? 'Follower Share' : 'Subscriber Share', val: report?.subConcentration, desc: 'concentration density' },
+            { label: selectedPlatform === 'instagram' ? 'Reach Share' : 'Views Share', val: report?.viewConcentration, desc: 'traffic concentration' },
+            { label: selectedPlatform === 'instagram' ? 'Direct Actions' : 'Revenue Dependency', val: report?.revenueDependency, desc: 'earnings concentration' },
+            { label: 'Audience Diversity', val: report?.audienceDiversification, desc: 'segment spread index' }
           ].map((m, idx) => (
             <div key={idx} className="space-y-1">
               <div className="flex items-center justify-between font-bold text-gray-700">
@@ -339,16 +377,20 @@ export default function AIInsightsPanel({ selectedIds }) {
         
         <div className="grid grid-cols-2 gap-2.5 text-[10px] font-bold">
           {[
-            { label: 'Highest Growth', ch: report.fastestGrowingCh, metric: report.growthMomentum },
-            { label: selectedPlatform === 'instagram' ? 'Highest Reach' : 'Highest Revenue', ch: report.highestRevenueCh, metric: `${report.highestRevenueCh?._raw?.totalViews || '24K'} reach` },
-            { label: 'Highest Engagement', ch: report.highestEngagementCh, metric: `${report.highestEngagementCh?._analytics?.engagementRate?.toFixed(1) || '4.5'}% rate` },
-            { label: 'Most Consistent', ch: report.mostConsistentCh, metric: `${report.mostConsistentCh?._raw?.totalVideos || '12'} ${selectedPlatform === 'instagram' ? 'posts' : 'videos'} published` }
+            { label: 'Highest Growth', ch: report?.fastestGrowingCh, metric: report?.growthMomentum },
+            { label: selectedPlatform === 'instagram' ? 'Highest Reach' : 'Highest Revenue', ch: report?.highestRevenueCh, metric: `${report?.highestRevenueCh?._raw?.totalViews || '24K'} reach` },
+            { label: 'Highest Engagement', ch: report?.highestEngagementCh, metric: `${report?.highestEngagementCh?._analytics?.engagementRate?.toFixed(1) || '4.5'}% rate` },
+            { label: 'Most Consistent', ch: report?.mostConsistentCh, metric: `${report?.mostConsistentCh?._raw?.totalVideos || '12'} ${selectedPlatform === 'instagram' ? 'posts' : 'videos'} published` }
           ].map((item, idx) => (
             <div key={idx} className="flex items-center gap-2 border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-              <img src={item.ch?.avatar} className="h-6.5 w-6.5 rounded-full object-cover border border-gray-100" />
+              {item.ch?.avatar ? (
+                <img src={item.ch.avatar} className="h-6.5 w-6.5 rounded-full object-cover border border-gray-100" />
+              ) : (
+                <div className="h-6.5 w-6.5 rounded-full bg-gray-100 flex items-center justify-center text-[8px] font-bold text-gray-400">?</div>
+              )}
               <div className="min-w-0 flex-1">
                 <span className="text-[8px] font-bold text-gray-400 block uppercase tracking-wide leading-none">{item.label}</span>
-                <p className="text-gray-900 truncate text-[11px] font-bold leading-tight mt-0.5">{item.ch?.name}</p>
+                <p className="text-gray-900 truncate text-[11px] font-bold leading-tight mt-0.5">{item.ch?.name || 'N/A'}</p>
               </div>
             </div>
           ))}
@@ -360,7 +402,7 @@ export default function AIInsightsPanel({ selectedIds }) {
         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Top Growth Niche Radar</span>
         
         <div className="space-y-2.5">
-          {report.growthRadar.map((radar, idx) => (
+          {(report?.growthRadar || []).map((radar, idx) => (
             <div key={idx} className="space-y-1 text-[10px]">
               <div className="flex items-center justify-between font-bold text-gray-700">
                 <span>{radar.topic}</span>
@@ -382,7 +424,7 @@ export default function AIInsightsPanel({ selectedIds }) {
       <div className="flex-1 space-y-3 overflow-y-auto max-h-[280px] pr-1.5 scrollbar-thin">
         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Strategic Priority Stream</span>
         
-        {report.recommendations.map((rec, idx) => {
+        {(report?.recommendations || []).map((rec, idx) => {
           return (
             <div
               key={idx}
@@ -439,7 +481,7 @@ export default function AIInsightsPanel({ selectedIds }) {
         </div>
         
         <div className="space-y-2">
-          {report.actionCenter.map((act, idx) => (
+          {(report?.actionCenter || []).map((act, idx) => (
             <div key={idx} className="rounded-xl bg-white border border-indigo-100/30 p-2.5 text-[10px] flex items-center justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <span className="font-bold text-gray-900 leading-tight block truncate">{act.action}</span>

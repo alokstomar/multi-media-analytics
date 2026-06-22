@@ -15,6 +15,7 @@ import ScriptFeedbackSection from '../components/content-intelligence/ScriptFeed
 import PerformancePrediction from '../components/content-intelligence/PerformancePrediction'
 import CompetitorOpportunities from '../components/content-intelligence/CompetitorOpportunities'
 import AIStrategistPanel from '../components/content-intelligence/AIStrategistPanel'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 export default function ContentIntelligence() {
   const { selectedPlatform } = usePlatform()
@@ -29,7 +30,8 @@ export default function ContentIntelligence() {
   // Refresh channels cache check on mount
   useEffect(() => {
     if (refreshChannels) refreshChannels()
-  }, [refreshChannels])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* Loading skeleton placeholder */
   const Skel = () => (
@@ -91,43 +93,63 @@ export default function ContentIntelligence() {
             className="space-y-7"
           >
             {/* ── Metric Cards ─────────────────────────── */}
-            <MetricsOverview channelData={channelData} />
+            <ErrorBoundary>
+              <MetricsOverview channelData={channelData} />
+            </ErrorBoundary>
 
             {/* ── Grid Layout ─────────────────────────── */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
-              
+
               {/* Left Column: Assembling Sections */}
               <div className="xl:col-span-3 space-y-6">
-                
+
                 {/* 1. AI Content Idea Generator */}
-                <VideoIdeasSection channelData={channelData} />
+                <ErrorBoundary>
+                  <VideoIdeasSection channelData={channelData} />
+                </ErrorBoundary>
 
                 {/* 2. Shorts Idea Engine */}
-                <ShortsIdeasSection channelData={channelData} />
+                <ErrorBoundary>
+                  <ShortsIdeasSection channelData={channelData} />
+                </ErrorBoundary>
 
                 {/* 3. Content Gap Analysis */}
-                <ContentGapSection channelData={channelData} />
+                <ErrorBoundary>
+                  <ContentGapSection channelData={channelData} />
+                </ErrorBoundary>
 
                 {/* 4. Title Analyzer */}
-                <TitleAnalyzer />
+                <ErrorBoundary>
+                  <TitleAnalyzer />
+                </ErrorBoundary>
 
                 {/* 5. Thumbnail Analyzer */}
-                <ThumbnailAnalyzer />
+                <ErrorBoundary>
+                  <ThumbnailAnalyzer />
+                </ErrorBoundary>
 
                 {/* 6. Script Feedback AI */}
-                <ScriptFeedbackSection />
+                <ErrorBoundary>
+                  <ScriptFeedbackSection />
+                </ErrorBoundary>
 
                 {/* 7. Performance Prediction Dashboard */}
-                <PerformancePrediction />
+                <ErrorBoundary>
+                  <PerformancePrediction />
+                </ErrorBoundary>
 
                 {/* 8. Competitor Content Opportunities */}
-                <CompetitorOpportunities channelData={channelData} />
+                <ErrorBoundary>
+                  <CompetitorOpportunities channelData={channelData} />
+                </ErrorBoundary>
 
               </div>
 
               {/* Right Column: AI Strategist Panel */}
               <div className="xl:col-span-1 sticky top-6">
-                <AIStrategistPanel channelData={channelData} />
+                <ErrorBoundary>
+                  <AIStrategistPanel channelData={channelData} />
+                </ErrorBoundary>
               </div>
 
             </div>

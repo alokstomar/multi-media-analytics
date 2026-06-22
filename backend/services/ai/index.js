@@ -19,7 +19,10 @@ const PROVIDER_METHOD_NAMES = [
   // Priority 1 — YouTube Content Intelligence
   'analyzeTitle', 'analyzeThumbnail',
   'generateVideoIdeas', 'generateShortsIdeas',
-  'getStrategistTips'
+  'getStrategistTips',
+  // Portfolio Intelligence
+  'getPortfolioSummary', 'getAudienceOverlap', 'getCrossPromotion',
+  'getPortfolioContentGaps', 'getCannibalization', 'getPortfolioStrategist'
 ]
 
 // Build a fallback proxy around a primary provider so any thrown error
@@ -30,6 +33,9 @@ function buildProxyWithStubFallback(primaryProvider, providerLabel) {
   for (const name of PROVIDER_METHOD_NAMES) {
     proxy[name] = async function (...args) {
       try {
+        if (typeof primaryProvider[name] !== 'function') {
+          return stubFallback[name](...args)
+        }
         return await primaryProvider[name](...args)
       } catch (err) {
         console.warn(`[AI Fallback] ${name} ${providerLabel} failed: ${err.message} — falling back to stub provider`)

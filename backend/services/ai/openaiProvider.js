@@ -21,7 +21,14 @@ const CACHE_TTL = {
   analyzeThumbnail: 48,
   generateVideoIdeas: 12,
   generateShortsIdeas: 12,
-  getStrategistTips: 6
+  getStrategistTips: 6,
+  // Portfolio Intelligence — expensive multi-channel computations, cache aggressively
+  getPortfolioStrategist: 24,
+  getAudienceOverlap: 24,
+  getPortfolioContentGaps: 12,
+  getCannibalization: 24,
+  getCrossPromotion: 24,
+  getPortfolioSummary: 12,
 }
 
 // ── Model tier: which methods get the premium model ─────────────────────
@@ -31,6 +38,13 @@ const PREMIUM_METHODS = new Set([
   'analyzeLinkedInPost',
   'analyzeTweet',
   'analyzeThumbnail', // needs vision → gpt-4o
+  // Portfolio Intelligence — these need the larger model's reasoning capacity
+  'getPortfolioStrategist',
+  'getAudienceOverlap',
+  'getPortfolioContentGaps',
+  'getCannibalization',
+  'getCrossPromotion',
+  'getPortfolioSummary',
 ])
 
 // ── Cost per 1M tokens (USD) for estimating spend ───────────────────────
@@ -177,7 +191,42 @@ const VALIDATORS = {
       && typeof t.text === 'string'
       && ['positive', 'warning', 'info'].includes(t.type)
     )
-  }
+  },
+  // ── Portfolio Intelligence ────────────────────────────────────────────
+  getPortfolioStrategist(obj) {
+    return obj
+      && typeof obj.healthScore === 'number'
+      && typeof obj.stabilityScore === 'number'
+      && Array.isArray(obj.recommendations)
+      && Array.isArray(obj.actionCenter)
+      && Array.isArray(obj.growthRadar)
+  },
+  getAudienceOverlap(obj) {
+    if (!obj || !Array.isArray(obj.pairs)) return false
+    return obj.pairs.every((p) =>
+      typeof p.channelAId === 'string'
+      && typeof p.channelBId === 'string'
+      && typeof p.overlap === 'number'
+    )
+  },
+  getPortfolioContentGaps(obj) {
+    if (!obj || !Array.isArray(obj.gaps)) return false
+    return obj.gaps.every((g) =>
+      typeof g.topic === 'string'
+      && typeof g.opportunityScore === 'number'
+    )
+  },
+  getCannibalization(obj) {
+    return obj && Array.isArray(obj.warnings)
+  },
+  getCrossPromotion(obj) {
+    return obj && Array.isArray(obj.promotions)
+  },
+  getPortfolioSummary(obj) {
+    return obj
+      && typeof obj.channelsCount === 'number'
+      && Array.isArray(obj.channels)
+  },
 }
 
 

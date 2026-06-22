@@ -64,4 +64,33 @@ export class AIProviderInterface {
   async getStrategistTips(ctx, opts) {
     throw new Error('getStrategistTips() not implemented')
   }
+
+  // ── Portfolio Intelligence (multi-channel aggregates) ────────────────
+  // All take a context object with `channels: [{ channel, videos }]` as
+  // produced by portfolioController.loadPortfolioContext, and an options
+  // object with the feature name.
+
+  async getPortfolioSummary(ctx, opts) {
+    throw new Error('getPortfolioSummary() not implemented')
+  }
+
+  async getAudienceOverlap(ctx, opts) {
+    throw new Error('getAudienceOverlap() not implemented')
+  }
+
+  async getCrossPromotion(ctx, opts) {
+    throw new Error('getCrossPromotion() not implemented')
+  }
+
+  async getPortfolioContentGaps(ctx, opts) {
+    throw new Error('getPortfolioContentGaps() not implemented')
+  }
+
+  async getCannibalization(ctx, opts) {
+    throw new Error('getCannibalization() not implemented')
+  }
+
+  async getPortfolioStrategist(ctx, opts) {
+    throw new Error('getPortfolioStrategist() not implemented')
+  }
 }

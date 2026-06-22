@@ -357,5 +357,294 @@ export class StubAIProvider extends AIProviderInterface {
 
     return { tips }
   }
+
+  async getPortfolioSummary(ctx = {}, opts = {}) {
+    const channels = (ctx.channels || []).map(c => c.channel || c)
+    return {
+      channelsCount: channels.length,
+      channels: channels.map(c => ({
+        id: c.channelId || c.id,
+        name: c.name || c.title,
+        subscribers: c.subscribers || 0,
+        totalViews: c.totalViews || 0,
+        totalVideos: c.totalVideos || 0
+      }))
+    }
+  }
+
+  async getAudienceOverlap(ctx = {}, opts = {}) {
+    const channels = (ctx.channels || []).map(c => c.channel || c)
+    const pairs = []
+    const RADAR_AXES = [
+      'Tech Appeal',
+      'Entertainment Value',
+      'Educational Depth',
+      'Viral Potential',
+      'Subscriber Loyalty',
+      'Global Reach'
+    ]
+
+    const getRadarValue = (c, axis) => {
+      const name = c.name || c.title || ''
+      const category = c.category || ''
+      const hash = (name.length + axis.length) % 20
+      switch (axis) {
+        case 'Tech Appeal':
+          return category.toLowerCase() === 'tech' ? 94 : 35 + hash
+        case 'Entertainment Value':
+          return ['entertainment', 'comedy', 'music', 'gaming'].includes(category.toLowerCase()) ? 96 : 40 + hash
+        case 'Educational Depth':
+          return ['education', 'tech', 'news'].includes(category.toLowerCase()) ? 90 : 25 + hash
+        case 'Viral Potential':
+          return 50 + (Number(c.totalViews || 0) % 45)
+        case 'Subscriber Loyalty':
+          return 60 + (Number(c.subscribers || 0) % 35)
+        case 'Global Reach':
+          return 55 + (name.charCodeAt(0) % 40 || 0)
+        default:
+          return 50
+      }
+    }
+
+    for (let i = 0; i < channels.length; i++) {
+      for (let j = i + 1; j < channels.length; j++) {
+        const chA = channels[i]
+        const chB = channels[j]
+        const nameA = chA.name || chA.title || ''
+        const nameB = chB.name || chB.title || ''
+        const sameCat = chA.category === chB.category
+        const hash = (nameA.length * nameB.length) % 25
+        const overlap = sameCat ? (64 + hash) : (24 + hash)
+        const contentSim = sameCat ? (76 + (hash % 17)) : (16 + (hash % 29))
+        const demoMatch = 42 + (((nameA.charCodeAt(0) || 0) + (nameB.charCodeAt(0) || 0)) % 49)
+        const collabPotential = Math.round((overlap * 0.4) + (contentSim * 0.3) + (demoMatch * 0.3))
+
+        let rating = 'Moderate Fit', ratingColor = 'text-amber-600 bg-amber-50 border-amber-100/50', recText = 'Consider simple cross-promotional community posts to gauge viewer crossover.'
+        if (collabPotential >= 80) { rating = 'Outstanding Synergy'; ratingColor = 'text-emerald-600 bg-emerald-50 border-emerald-100/50'; recText = 'High recommendation! Schedule a joint long-form video or short collab immediately.' }
+        else if (collabPotential >= 60) { rating = 'Strong Potential'; ratingColor = 'text-blue-600 bg-blue-50 border-blue-100/50'; recText = 'Great integration opportunities. A podcast crossover or shorts takeover is advised.' }
+        else if (collabPotential < 40) { rating = 'Low Synergy'; ratingColor = 'text-gray-500 bg-gray-50 border-gray-200/50'; recText = 'Audiences are quite segmented. Focus on individual growth before attempting crossover campaigns.' }
+
+        pairs.push({
+          channelAId: chA.channelId || chA.id,
+          channelAName: nameA,
+          channelBId: chB.channelId || chB.id,
+          channelBName: nameB,
+          overlap, contentSim, demoMatch, collabPotential, rating, ratingColor, recText
+        })
+      }
+    }
+
+    const radarData = RADAR_AXES.map(axis => {
+      const point = { subject: axis }
+      channels.forEach(c => {
+        point[c.name || c.title || ''] = getRadarValue(c, axis)
+      })
+      return point
+    })
+
+    return { pairs, radarData }
+  }
+
+  async getCrossPromotion(ctx = {}, opts = {}) {
+    return { promotions: [] }
+  }
+
+  async getPortfolioContentGaps(ctx = {}, opts = {}) {
+    const channels = (ctx.channels || []).map(c => c.channel || c)
+    const CATEGORY_NICHE_MAP = {
+      tech: [
+        { topic: 'AI Productivity Tools & Workflows', category: 'Tech', volume: '140K', growth: '+48%', difficulty: 'Easy', interest: 96, format: 'Long Form', viewRange: '1.2M – 2.4M', ctr: '+4.2%' },
+        { topic: 'Next-Gen AI Chips & Hardware Benchmarks', category: 'Tech', volume: '95K', growth: '+42%', difficulty: 'Medium', interest: 92, format: 'Long Form', viewRange: '800K – 1.6M', ctr: '+3.1%' },
+        { topic: 'SaaS Automation Frameworks for Devs', category: 'Tech', volume: '60K', growth: '+34%', difficulty: 'Hard', interest: 88, format: 'Shorts', viewRange: '450K – 900K', ctr: '+2.8%' }
+      ],
+      general: [
+        { topic: 'Creator Automation Frameworks', category: 'General', volume: '260K', growth: '+55%', difficulty: 'Medium', interest: 95, format: 'Long Form', viewRange: '1.5M – 3.0M', ctr: '+4.0%' },
+        { topic: 'Audience Scaling Playbook (Zero to 100K)', category: 'General', volume: '190K', growth: '+48%', difficulty: 'Hard', interest: 91, format: 'Long Form', viewRange: '1.1M – 2.3M', ctr: '+3.5%' }
+      ]
+    }
+
+    let pool = []
+    const categories = channels.map(c => c.category?.toLowerCase() || 'general')
+    const uniqueCats = [...new Set(categories)]
+    uniqueCats.forEach(cat => { pool = [...pool, ...(CATEGORY_NICHE_MAP[cat] || CATEGORY_NICHE_MAP.general)] })
+    if (pool.length < 3) pool = [...pool, ...CATEGORY_NICHE_MAP.general]
+
+    const gaps = pool.map((item, idx) => {
+      const opportunityScore = Math.round(75 + ((item.topic.length * 7 + idx * 3) % 22))
+      const compLevel = opportunityScore > 90 ? 'Low' : opportunityScore > 82 ? 'Medium' : 'High'
+      const diffScore = item.difficulty === 'Hard' ? 82 : item.difficulty === 'Medium' ? 58 : 34
+      const confidence = Math.round(82 + (item.topic.length % 13))
+      const roiScore = Math.round(opportunityScore * 0.85 + parseFloat(item.growth) * 0.4)
+
+      const bestChannel = channels[0] || { name: 'Unknown' }
+      return {
+        ...item,
+        opportunityScore,
+        compLevel,
+        diffScore,
+        bestChannelId: bestChannel.channelId || bestChannel.id,
+        bestChannelName: bestChannel.name || bestChannel.title,
+        confidence,
+        roiScore,
+        sparkData: Array.from({ length: 8 }, (_, i) => ({ v: Math.max(20, Math.round(item.interest - 15 + (i * 4) + Math.sin(idx + i) * 12)) })),
+        reasons: {
+          audience: `${item.category} audience demand is rising ${item.growth} MoM with ${item.volume} monthly searches.`,
+          search: `Search volume trend has accelerated ${item.growth} over the past 90 days.`,
+          competitor: `Only ${compLevel.toLowerCase()} competition saturation detected.`,
+          portfolio: `${bestChannel.name || bestChannel.title || 'Channel'} has the strongest affinity match.`
+        }
+      }
+    })
+
+    return { gaps }
+  }
+
+  async getCannibalization(ctx = {}, opts = {}) {
+    return { warnings: [] }
+  }
+
+  async getPortfolioStrategist(ctx = {}, opts = {}) {
+    const channels = (ctx.channels || []).map(c => c.channel || c)
+    if (channels.length === 0) {
+      return {
+        healthScore: 0,
+        stabilityScore: 0,
+        riskLevel: 'Low',
+        riskBadgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-100/50',
+        growthMomentum: '+0%',
+        bestPerformingCh: null,
+        fastestGrowingCh: null,
+        highestEngagementCh: null,
+        highestRevenueCh: null,
+        mostConsistentCh: null,
+        subConcentration: 0,
+        viewConcentration: 0,
+        revenueDependency: 0,
+        audienceDiversification: 0,
+        recommendations: [],
+        actionCenter: [],
+        growthRadar: []
+      }
+    }
+
+    let totalSubs = 0
+    let totalViews = 0
+    let sumGrowth = 0
+    let totalVideos = 0
+
+    let topSubCh = channels[0] || null
+    let maxSubs = -1
+    
+    let fastestCh = channels[0] || null
+    let maxGrowth = -Infinity
+
+    let engagementCh = channels[0] || null
+    let maxEng = -1
+
+    let slowCh = channels[0] || null
+    let minGrowth = Infinity
+
+    let maxViewsCh = channels[0] || null
+    let maxViews = -1
+
+    channels.forEach(c => {
+      const s = Number(c.subscribers || 0)
+      const v = Number(c.totalViews || 0)
+      const g = Number(c.viewsGrowth || 0)
+      const e = Number(c.engagementRate || 3.5)
+      const vid = Number(c.totalVideos || 0)
+
+      totalSubs += s
+      totalViews += v
+      sumGrowth += g
+      totalVideos += vid
+
+      if (s > maxSubs) {
+        maxSubs = s
+        topSubCh = c
+      }
+      if (g > maxGrowth) {
+        maxGrowth = g
+        fastestCh = c
+      }
+      if (g < minGrowth) {
+        minGrowth = g
+        slowCh = c
+      }
+      if (e > maxEng) {
+        maxEng = e
+        engagementCh = c
+      }
+      if (v > maxViews) {
+        maxViews = v
+        maxViewsCh = c
+      }
+    })
+
+    const avgGrowth = channels.length > 0 ? sumGrowth / channels.length : 0
+    const subConcentration = totalSubs > 0 ? Math.round((maxSubs / totalSubs) * 100) : 0
+    const viewConcentration = totalViews > 0 ? Math.round((maxViews / totalViews) * 100) : 0
+    const revenueDependency = viewConcentration
+    const audienceDiversification = Math.min(95, Math.round(20 + channels.length * 15))
+    const stabilityScore = Math.round(100 - (subConcentration * 0.45) + (audienceDiversification * 0.25))
+    const healthScore = Math.round(80 + (channels.length * 2 + avgGrowth * 0.1) % 18)
+
+    let riskLevel = 'Low'
+    let riskBadgeColor = 'text-emerald-600 bg-emerald-50 border-emerald-100/50'
+    if (subConcentration > 65) {
+      riskLevel = 'High'
+      riskBadgeColor = 'text-red-500 bg-red-50 border-red-100/50'
+    } else if (subConcentration > 45) {
+      riskLevel = 'Moderate'
+      riskBadgeColor = 'text-amber-500 bg-amber-50 border-amber-100/50'
+    }
+
+    const recommendations = []
+    if (topSubCh) {
+      const isCritical = subConcentration > 65
+      recommendations.push({
+        priority: isCritical ? 'Critical' : 'High Priority',
+        priorityColor: isCritical ? 'text-red-600 bg-red-50' : 'text-blue-600 bg-blue-50',
+        title: `${topSubCh.name || topSubCh.title} Concentration Risk`,
+        desc: `${topSubCh.name || topSubCh.title} controls ${subConcentration}% of your total portfolio followers. Audience concentration is high.`,
+        actionText: 'Promote smaller accounts',
+        confidence: 96,
+        impact: `+${Math.round(subConcentration * 0.3)}% stability`,
+        executionTime: '2 Days',
+        impactScore: 92,
+        channelColor: topSubCh.color || '#8B5CF6'
+      })
+    }
+
+    const actionCenter = [
+      { action: 'Launch AI Productivity Series', gain: '+18% Views', impact: 'High', difficulty: 'Medium' },
+      { action: 'Schedule Cross Collaboration', gain: '+22% Reach', impact: 'High', difficulty: 'Easy' }
+    ]
+
+    const growthRadar = [
+      { topic: 'AI Tools & Productivity', score: 96, growth: '+64%', comp: 'Low' },
+      { topic: 'Creator Economy Case Studies', score: 92, growth: '+48%', comp: 'Low' }
+    ]
+
+    return {
+      healthScore,
+      stabilityScore,
+      riskLevel,
+      riskBadgeColor,
+      growthMomentum: avgGrowth >= 0 ? `+${avgGrowth.toFixed(0)}%` : `${avgGrowth.toFixed(0)}%`,
+      bestPerformingCh: topSubCh,
+      fastestGrowingCh: fastestCh,
+      highestEngagementCh: engagementCh,
+      highestRevenueCh: maxViewsCh,
+      mostConsistentCh: topSubCh,
+      subConcentration,
+      viewConcentration,
+      revenueDependency,
+      audienceDiversification,
+      recommendations,
+      actionCenter,
+      growthRadar
+    }
+  }
 }
 

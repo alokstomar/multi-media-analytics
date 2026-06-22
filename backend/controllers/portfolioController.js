@@ -9,12 +9,20 @@ async function loadPortfolioContext(channelIds, workspaceId) {
   if (channels.length !== channelIds.length) {
     throw new AppError('One or more channel IDs do not belong to this workspace', 403)
   }
-  const result = []
-  for (const ch of channels) {
-    const videos = await Video.find({ channelId: ch.channelId }).sort({ publishedAt: -1 }).limit(20).lean()
-    result.push({ channel: ch, videos })
+  // Single round-trip: fetch top 20 videos per channel in one sorted query, then group in-memory.
+  const allVideos = await Video
+    .find({ channelId: { $in: channelIds } })
+    .sort({ channelId: 1, publishedAt: -1 })
+    .lean()
+
+  const byChannel = new Map()
+  for (const v of allVideos) {
+    const bucket = byChannel.get(v.channelId) || []
+    if (bucket.length < 20) bucket.push(v)
+    byChannel.set(v.channelId, bucket)
   }
-  return result
+
+  return channels.map((ch) => ({ channel: ch, videos: byChannel.get(ch.channelId) || [] }))
 }
 
 async function cachedPortfolioAI(channelIds, feature, providerFn) {
@@ -39,8 +47,8 @@ function withMeta(result, feature) {
 
 function validateChannelIds(req, res, next) {
   const { channelIds } = req.body
-  if (!Array.isArray(channelIds) || channelIds.length === 0) {
-    throw new AppError('channelIds must be a non-empty array', 400)
+  if (!Array.isArray(channelIds)) {
+    return []
   }
   return channelIds
 }
@@ -48,6 +56,9 @@ function validateChannelIds(req, res, next) {
 export async function getPortfolioSummary(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({ channelsCount: 0, channels: [] }, 'portfolio-summary'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-summary', () =>
       getAIProvider().getPortfolioSummary({ channels }, { feature: 'portfolio-summary' }),
@@ -59,6 +70,9 @@ export async function getPortfolioSummary(req, res, next) {
 export async function getAudienceOverlap(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({ pairs: [], radarData: [] }, 'portfolio-audience-overlap'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-audience-overlap', () =>
       getAIProvider().getAudienceOverlap({ channels }, { feature: 'portfolio-audience-overlap' }),
@@ -70,6 +84,9 @@ export async function getAudienceOverlap(req, res, next) {
 export async function getCrossPromotion(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({ promotions: [] }, 'portfolio-cross-promotion'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-cross-promotion', () =>
       getAIProvider().getCrossPromotion({ channels }, { feature: 'portfolio-cross-promotion' }),
@@ -81,6 +98,9 @@ export async function getCrossPromotion(req, res, next) {
 export async function getPortfolioContentGaps(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({ gaps: [] }, 'portfolio-content-gaps'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-content-gaps', () =>
       getAIProvider().getPortfolioContentGaps({ channels }, { feature: 'portfolio-content-gaps' }),
@@ -92,6 +112,9 @@ export async function getPortfolioContentGaps(req, res, next) {
 export async function getCannibalization(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({ warnings: [] }, 'portfolio-cannibalization'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-cannibalization', () =>
       getAIProvider().getCannibalization({ channels }, { feature: 'portfolio-cannibalization' }),
@@ -103,6 +126,27 @@ export async function getCannibalization(req, res, next) {
 export async function getPortfolioStrategist(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
+    if (channelIds.length === 0) {
+      return res.json(withMeta({
+        healthScore: 0,
+        stabilityScore: 0,
+        riskLevel: 'Low',
+        riskBadgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-100/50',
+        growthMomentum: '+0%',
+        bestPerformingCh: null,
+        fastestGrowingCh: null,
+        highestEngagementCh: null,
+        highestRevenueCh: null,
+        mostConsistentCh: null,
+        subConcentration: 0,
+        viewConcentration: 0,
+        revenueDependency: 0,
+        audienceDiversification: 0,
+        recommendations: [],
+        actionCenter: [],
+        growthRadar: []
+      }, 'portfolio-strategist'))
+    }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-strategist', () =>
       getAIProvider().getPortfolioStrategist({ channels }, { feature: 'portfolio-strategist' }),

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, SlidersHorizontal, ArrowUpDown, Download, ChevronDown,
   Video, Eye, MousePointerClick, Clock, Flame, TrendingUp,
-  ArrowUpRight, Sparkles, ChevronRight, Plus, BadgeCheck
+  ArrowUpRight, Sparkles, ChevronRight, Plus, BadgeCheck, RefreshCw
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -57,7 +57,7 @@ export default function Videos() {
   const FILTER_OPTIONS = ['All', 'Trending', 'High Engagement', 'Viral', 'Stable']
 
   // Fetch videos from API when channel changes
-  useEffect(() => {
+  const refreshVideos = () => {
     if (!activeAccountId || activeAccountId === 'demo' || activeAccountId === 'demo_ig' || activeAccountId === 'demo_tt' || activeAccountId === 'demo_li') {
       setApiVideos([])
       setVideosLoading(false)
@@ -76,7 +76,9 @@ export default function Videos() {
         .catch(() => setApiVideos([]))
         .finally(() => setVideosLoading(false))
     }
-  }, [activeAccountId, selectedPlatform])
+  }
+
+  useEffect(refreshVideos, [activeAccountId, selectedPlatform])
 
   const searchRef = useRef(null)
 
@@ -567,6 +569,28 @@ export default function Videos() {
                 </div>
 
                 {/* Video/Post rows */}
+                {videos.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center px-6 py-16">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 text-gray-300 mb-4">
+                      <Video className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-semibold text-gray-700">
+                      {selectedPlatform === 'instagram' ? 'No posts yet for this account' : 'No videos yet for this channel'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 max-w-sm">
+                      {selectedPlatform === 'instagram'
+                        ? 'Pull fresh data from Instagram to populate this table.'
+                        : 'Sync this channel to pull the latest videos from YouTube.'}
+                    </p>
+                    <button
+                      onClick={refreshVideos}
+                      className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800 transition"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Refresh
+                    </button>
+                  </div>
+                ) : (
                 <div className="divide-y divide-gray-50">
                   {videos.map((v, i) => (
                     <motion.div
@@ -674,6 +698,7 @@ export default function Videos() {
                     </motion.div>
                   ))}
                 </div>
+                )}
 
                 {/* View all */}
                 <div className="flex justify-center py-4 border-t border-gray-50">

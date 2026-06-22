@@ -40,11 +40,55 @@ export function AnalyticsProvider({ children }) {
   const [channelsLoading, setChannelsLoading] = useState(true)
   const [lastChannelsRefresh, setLastChannelsRefresh] = useState(0)
   const timerRef = useRef(null)
+  const channelsTimerRef = useRef(null)
+  const transitionTimerRef = useRef(null)
 
   // Load channels on mount
   useEffect(() => {
     loadChannelsFromAPI()
   }, [])
+
+  // Safety net: force channelsLoading off after 15s even if loadChannelsFromAPI hangs
+  useEffect(() => {
+    if (!channelsLoading) {
+      if (channelsTimerRef.current) {
+        clearTimeout(channelsTimerRef.current)
+        channelsTimerRef.current = null
+      }
+      return
+    }
+    channelsTimerRef.current = setTimeout(() => {
+      setChannelsLoading(false)
+      channelsTimerRef.current = null
+    }, 15_000)
+    return () => {
+      if (channelsTimerRef.current) {
+        clearTimeout(channelsTimerRef.current)
+        channelsTimerRef.current = null
+      }
+    }
+  }, [channelsLoading])
+
+  // Safety net: force isTransitioning off after 8s even if fetchChannelData hangs
+  useEffect(() => {
+    if (!isTransitioning) {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+      return
+    }
+    transitionTimerRef.current = setTimeout(() => {
+      setIsTransitioning(false)
+      transitionTimerRef.current = null
+    }, 8_000)
+    return () => {
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current)
+        transitionTimerRef.current = null
+      }
+    }
+  }, [isTransitioning])
 
   async function loadChannelsFromAPI() {
     setChannelsLoading(true)
