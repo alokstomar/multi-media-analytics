@@ -19,7 +19,7 @@ const PROVIDER_METHOD_NAMES = [
   // Priority 1 — YouTube Content Intelligence
   'analyzeTitle', 'analyzeThumbnail',
   'generateVideoIdeas', 'generateShortsIdeas',
-  'getStrategistTips',
+  'getStrategistTips', 'getContentGaps',
   // Portfolio Intelligence
   'getPortfolioSummary', 'getAudienceOverlap', 'getCrossPromotion',
   'getPortfolioContentGaps', 'getCannibalization', 'getPortfolioStrategist'

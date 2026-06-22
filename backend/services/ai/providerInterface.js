@@ -65,6 +65,10 @@ export class AIProviderInterface {
     throw new Error('getStrategistTips() not implemented')
   }
 
+  async getContentGaps(ctx, opts) {
+    throw new Error('getContentGaps() not implemented')
+  }
+
   // ── Portfolio Intelligence (multi-channel aggregates) ────────────────
   // All take a context object with `channels: [{ channel, videos }]` as
   // produced by portfolioController.loadPortfolioContext, and an options

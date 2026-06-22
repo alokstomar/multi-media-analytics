@@ -358,6 +358,25 @@ export class StubAIProvider extends AIProviderInterface {
     return { tips }
   }
 
+  async getContentGaps(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || 'demo'
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+    const title1 = (videos[0]?.title || 'Personal Finance').slice(0, 40)
+    const title2 = (videos[1]?.title || 'Investing Basics').slice(0, 40)
+    const title3 = (videos[2]?.title || 'Wealth Building').slice(0, 40)
+    const niche = (channel.category || channel.niche || 'General').toLowerCase()
+
+    return {
+      gaps: [
+        { id: 1, topic: `Uncovering secrets behind "${title1.slice(0, 20)}..."`, opportunity: 'Very High', monthlyVolume: '850K searches', difficulty: 'Medium', badgeColor: 'bg-red-50 text-red-600 border-red-100', niche },
+        { id: 2, topic: `Extreme comparison of "${title2.slice(0, 20)}..."`, opportunity: 'High', monthlyVolume: '420K searches', difficulty: 'Low', badgeColor: 'bg-blue-50 text-blue-600 border-blue-100', niche },
+        { id: 3, topic: `24-Hour marathon challenge: "${title3.slice(0, 20)}..."`, opportunity: 'High', monthlyVolume: '680K searches', difficulty: 'High', badgeColor: 'bg-purple-50 text-purple-600 border-purple-100', niche },
+      ],
+      nicheTrends: [],
+    }
+  }
+
   async getPortfolioSummary(ctx = {}, opts = {}) {
     const channels = (ctx.channels || []).map(c => c.channel || c)
     return {
