@@ -190,13 +190,19 @@ export class OpenAIProvider extends AIProviderInterface {
     this.premiumModel = process.env.OPENAI_PREMIUM_MODEL || 'gpt-4o'
     this.dailyBudget = parseFloat(process.env.OPENAI_DAILY_BUDGET_USD) || Infinity
     this.monthlyBudget = parseFloat(process.env.OPENAI_MONTHLY_BUDGET_USD) || Infinity
+    // Subclass hooks: keep these as instance fields so GroqProvider (or any
+    // other OpenAI-compatible provider) can override them in its constructor
+    // without duplicating _execute / analyzeThumbnail / _checkBudget.
+    this.providerKey = 'openai'         // stored on AIResponseCache.provider
+    this.providerLabel = 'OpenAI'       // used in error messages
+    this.logPrefix = '[AI OpenAI]'      // used in console.log success lines
   }
 
   // ── Core execution pipeline ───────────────────────────────────────────
 
   async healthCheck() {
     return {
-      provider: 'openai',
+      provider: this.providerKey,
       fastModel: this.fastModel,
       premiumModel: this.premiumModel,
       apiKeyConfigured: !!this.apiKey,
@@ -229,15 +235,15 @@ export class OpenAIProvider extends AIProviderInterface {
     const monthlySpend = monthlyAgg[0]?.total || 0
 
     if (dailySpend >= this.dailyBudget) {
-      throw new Error(`OpenAI daily budget exceeded ($${dailySpend.toFixed(4)} / $${this.dailyBudget})`)
+      throw new Error(`${this.providerLabel} daily budget exceeded ($${dailySpend.toFixed(4)} / $${this.dailyBudget})`)
     }
     if (monthlySpend >= this.monthlyBudget) {
-      throw new Error(`OpenAI monthly budget exceeded ($${monthlySpend.toFixed(4)} / $${this.monthlyBudget})`)
+      throw new Error(`${this.providerLabel} monthly budget exceeded ($${monthlySpend.toFixed(4)} / $${this.monthlyBudget})`)
     }
   }
 
   async _execute(method, params, systemPrompt, userPrompt, options = {}) {
-    if (!this.apiKey) throw new Error('OpenAI API Key not configured')
+    if (!this.apiKey) throw new Error(`${this.providerLabel} API Key not configured`)
 
     const cacheKey = makeCacheKey(method, params)
 
@@ -304,10 +310,10 @@ export class OpenAIProvider extends AIProviderInterface {
         method, model, promptTokens, completionTokens, totalTokens,
         estimatedCost: cost, responseTimeMs,
         success: false,
-        error: 'Invalid JSON structure from OpenAI',
+        error: `Invalid JSON structure from ${this.providerLabel}`,
         cacheHit: false, params
       }).catch(() => {})
-      throw new Error(`OpenAI returned invalid JSON structure for ${method}`)
+      throw new Error(`${this.providerLabel} returned invalid JSON structure for ${method}`)
     }
 
     // 5. Cache response
@@ -319,7 +325,7 @@ export class OpenAIProvider extends AIProviderInterface {
         {
           cacheKey, method, params,
           response: parsed,
-          provider: 'openai',
+          provider: this.providerKey,
           usage: { promptTokens, completionTokens, totalTokens, model, estimatedCost: cost },
           responseTimeMs,
           expiresAt
@@ -337,7 +343,7 @@ export class OpenAIProvider extends AIProviderInterface {
       success: true, cacheHit: false, params
     }).catch(() => {})
 
-    console.log(`[AI OpenAI] ${method} — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
+    console.log(`${this.logPrefix} ${method} — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
     return parsed
   }
 
@@ -557,7 +563,7 @@ Variants must each be under 70 characters and CTR-optimized.`
   }
 
   async analyzeThumbnail(payload = {}) {
-    if (!this.apiKey) throw new Error('OpenAI API Key not configured')
+    if (!this.apiKey) throw new Error(`${this.providerLabel} API Key not configured`)
     const imageDataUrl = payload.imageBase64 || payload.imageDataUrl
     if (!imageDataUrl) throw new Error('analyzeThumbnail requires imageBase64')
 
@@ -628,10 +634,10 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
       AIUsageLog.create({
         method: 'analyzeThumbnail', model, promptTokens, completionTokens, totalTokens,
         estimatedCost: cost, responseTimeMs,
-        success: false, error: 'Invalid JSON structure from OpenAI',
+        success: false, error: `Invalid JSON structure from ${this.providerLabel}`,
         cacheHit: false, params: { imageHash }
       }).catch(() => {})
-      throw new Error('OpenAI returned invalid JSON structure for analyzeThumbnail')
+      throw new Error(`${this.providerLabel} returned invalid JSON structure for analyzeThumbnail`)
     }
 
     // Cache + log
@@ -641,7 +647,7 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
         { cacheKey },
         {
           cacheKey, method: 'analyzeThumbnail', params: { imageHash },
-          response: parsed, provider: 'openai',
+          response: parsed, provider: this.providerKey,
           usage: { promptTokens, completionTokens, totalTokens, model, estimatedCost: cost },
           responseTimeMs, expiresAt
         },
@@ -657,7 +663,7 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
       success: true, cacheHit: false, params: { imageHash }
     }).catch(() => {})
 
-    console.log(`[AI OpenAI] analyzeThumbnail — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
+    console.log(`${this.logPrefix} analyzeThumbnail — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
     return parsed
   }
 

@@ -1,10 +1,12 @@
 import { StubAIProvider } from './stubProvider.js'
 import { OpenAIProvider } from './openaiProvider.js'
 import { GeminiProvider } from './geminiProvider.js'
+import { GroqProvider } from './groqProvider.js'
 
 const providerType = process.env.AI_PROVIDER || 'stub'
 const openaiApiKey = process.env.OPENAI_API_KEY
 const geminiApiKey = process.env.GEMINI_API_KEY
+const groqApiKey = process.env.GROQ_API_KEY
 
 // Shared method list — kept identical across providers so the proxy/fallback
 // behavior is uniform regardless of which AI_PROVIDER is active.
@@ -47,6 +49,9 @@ if (providerType === 'openai' && openaiApiKey) {
 } else if (providerType === 'gemini' && geminiApiKey) {
   activeProviderInstance = buildProxyWithStubFallback(new GeminiProvider(geminiApiKey), 'Gemini')
   console.log('AI Growth Engine: Active Provider resolved to [Gemini] (with stub fallback)')
+} else if (providerType === 'groq' && groqApiKey) {
+  activeProviderInstance = buildProxyWithStubFallback(new GroqProvider(groqApiKey), 'Groq')
+  console.log('AI Growth Engine: Active Provider resolved to [Groq] (with stub fallback)')
 } else {
   activeProviderInstance = stubFallback
   console.log(`AI Growth Engine: Active Provider resolved to [Stub/Mock] (AI_PROVIDER=${providerType || 'unset'})`)
