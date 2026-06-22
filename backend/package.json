@@ -11,6 +11,7 @@
     "test:audit": "node stability_audit.js"
   },
   "dependencies": {
+    "@google/genai": "^2.9.0",
     "axios": "^1.16.1",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.77.7",
