@@ -62,8 +62,11 @@ function contentCacheKey(content, prefix) {
 
 function withMeta(result, feature) {
   return {
-    ...result,
-    meta: { ...result.meta, feature, requestedAt: new Date().toISOString() },
+    success: true,
+    data: {
+      ...result,
+      meta: { ...result?.meta, feature, requestedAt: new Date().toISOString() },
+    }
   }
 }
 
