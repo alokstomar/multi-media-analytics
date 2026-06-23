@@ -3,7 +3,7 @@ import {
   getCommentsSummary,
   getMultiChannelComments,
   getMultiChannelSummary,
-  syncCommentsFromYouTube,
+  enqueueCommentSync,
 } from '../services/commentService.js'
 import Channel from '../models/Channel.js'
 import { AppError } from '../utils/errorHandler.js'
@@ -25,15 +25,12 @@ export async function listChannelComments(req, res, next) {
     const { id } = req.params
     const page = parseInt(req.query.page, 10) || 1
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100)
-    const refresh = req.query.refresh === 'true'
     const { sentiment, search, timeRange, language } = req.query
-    const maxVideos = parseDepth(req.query.maxVideos)
-    const maxVolume = parseVolume(req.query.maxVolume)
 
     const channel = await Channel.findOne({ channelId: id, workspaceId: req.workspaceId })
     if (!channel) throw new AppError('Channel not found or not in workspace', 404)
 
-    const result = await getComments(id, { page, limit, refresh, sentiment, search, timeRange, maxVideos, maxVolume, language })
+    const result = await getComments(id, { page, limit, sentiment, search, timeRange, language, workspaceId: req.workspaceId })
     res.json({ success: true, ...result })
   } catch (err) {
     next(err)
@@ -43,14 +40,11 @@ export async function listChannelComments(req, res, next) {
 export async function getChannelCommentsSummary(req, res, next) {
   try {
     const { id } = req.params
-    const refresh = req.query.refresh === 'true'
-    const maxVideos = parseDepth(req.query.maxVideos)
-    const maxVolume = parseVolume(req.query.maxVolume)
 
     const channel = await Channel.findOne({ channelId: id, workspaceId: req.workspaceId })
     if (!channel) throw new AppError('Channel not found or not in workspace', 404)
 
-    const summary = await getCommentsSummary(id, { refresh, maxVideos, maxVolume })
+    const summary = await getCommentsSummary(id, { workspaceId: req.workspaceId })
     res.json({ success: true, data: summary })
   } catch (err) {
     next(err)
@@ -66,8 +60,8 @@ export async function refreshChannelComments(req, res, next) {
     const channel = await Channel.findOne({ channelId: id, workspaceId: req.workspaceId })
     if (!channel) throw new AppError('Channel not found or not in workspace', 404)
 
-    const result = await syncCommentsFromYouTube(id, { force: true, maxVideos, maxVolume })
-    res.json({ success: true, data: result })
+    const result = enqueueCommentSync(id, { maxVideos, maxVolume, workspaceId: req.workspaceId })
+    res.status(202).json({ success: true, data: result })
   } catch (err) {
     next(err)
   }
@@ -82,10 +76,7 @@ export async function listMultiChannelComments(req, res, next) {
 
     const page = parseInt(req.query.page, 10) || 1
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100)
-    const refresh = req.query.refresh === 'true'
     const { sentiment, search, timeRange, language } = req.query
-    const maxVideos = parseDepth(req.query.maxVideos)
-    const maxVolume = parseVolume(req.query.maxVolume)
 
     // Resolve channels belonging to current workspace
     let targetChannelIds = channelIds
@@ -103,7 +94,7 @@ export async function listMultiChannelComments(req, res, next) {
       }
     }
 
-    const result = await getMultiChannelComments(targetChannelIds, { page, limit, refresh, sentiment, search, timeRange, maxVideos, maxVolume, language })
+    const result = await getMultiChannelComments(targetChannelIds, { page, limit, sentiment, search, timeRange, language, workspaceId: req.workspaceId })
     res.json({ success: true, ...result })
   } catch (err) {
     next(err)
@@ -116,9 +107,6 @@ export async function getMultiChannelCommentsSummary(req, res, next) {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
-    const refresh = req.query.refresh === 'true'
-    const maxVideos = parseDepth(req.query.maxVideos)
-    const maxVolume = parseVolume(req.query.maxVolume)
 
     // Resolve channels belonging to current workspace
     let targetChannelIds = channelIds
@@ -136,7 +124,7 @@ export async function getMultiChannelCommentsSummary(req, res, next) {
       }
     }
 
-    const summary = await getMultiChannelSummary(targetChannelIds, { refresh, maxVideos, maxVolume })
+    const summary = await getMultiChannelSummary(targetChannelIds, { workspaceId: req.workspaceId })
     res.json({ success: true, data: summary })
   } catch (err) {
     next(err)

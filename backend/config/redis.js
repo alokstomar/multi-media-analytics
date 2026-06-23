@@ -47,8 +47,10 @@ export function getRedisClient() {
   return redisClient
 }
 
-// Immediately trigger initialization attempt
-getRedisClient()
+// Immediately trigger initialization attempt if not on Vercel
+if (!process.env.VERCEL) {
+  getRedisClient()
+}
 
 export function checkRedisAvailable() {
   return isRedisAvailable

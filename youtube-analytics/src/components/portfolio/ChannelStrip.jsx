@@ -9,12 +9,12 @@ export default function ChannelStrip({ selectedIds, onToggle }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-          Portfolio Connected Channels ({selectedIds.length} / {allChannels.length} active)
+          Portfolio Connected Channels ({selectedIds.length} / {(allChannels || []).length} active)
         </p>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
-        {allChannels.map((channel, i) => {
+        {(allChannels || []).map((channel, i) => {
           const isSelected = selectedIds.includes(channel.id)
 
           return (

@@ -20,7 +20,14 @@ export default function Login() {
       await login(email, password)
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed. Please try again.')
+      console.error('Login error details:', err)
+      if (err.response?.data?.error) {
+        setError(err.response.data.error)
+      } else if (err.request) {
+        setError('Cannot connect to the authentication server. Please check that the backend is running and reachable.')
+      } else {
+        setError(err.message || 'Login failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }

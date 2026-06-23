@@ -68,7 +68,7 @@ export default function AnalyticsOverview({ channelId }) {
         subscribers: e.subs
       }))
 
-  const aiInsights = isYoutube ? [] : (data?.aiInsights || [])
+  const aiInsights = isYoutube ? null : (data?.aiInsights || null)
 
   return (
     <div>

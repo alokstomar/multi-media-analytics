@@ -2,6 +2,11 @@ import mongoose from 'mongoose'
 
 const commentSchema = new mongoose.Schema({
   commentId: { type: String, required: true, unique: true },
+  workspaceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Workspace',
+    index: true,
+  },
   channelId: { type: String, required: true, index: true },
   channelName: { type: String, default: '' },
   videoId: { type: String, index: true },
@@ -43,6 +48,8 @@ const commentSchema = new mongoose.Schema({
 })
 
 commentSchema.index({ channelId: 1, publishedAt: -1 })
+commentSchema.index({ channelId: 1, createdAt: -1 })
+commentSchema.index({ workspaceId: 1, channelId: 1 })
 commentSchema.index({ channelId: 1, sentiment: 1 })
 commentSchema.index({ channelId: 1, isToxic: 1 })
 commentSchema.index({ videoId: 1, channelId: 1 })

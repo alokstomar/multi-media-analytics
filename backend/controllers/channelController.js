@@ -2,14 +2,8 @@ import Channel from '../models/Channel.js'
 import Video from '../models/Video.js'
 import Comment from '../models/Comment.js'
 import { resolveChannelId, fetchChannelDetails, fetchChannelVideos } from '../services/youtubeService.js'
-import { syncCommentsFromYouTube } from '../services/commentService.js'
 import { AppError } from '../utils/errorHandler.js'
 
-function warmCommentCache(channelId) {
-  syncCommentsFromYouTube(channelId, { force: true }).catch(() => {})
-}
-
-// ── Add a channel (by URL, @handle, or ID) ────────────────
 export async function addChannel(req, res, next) {
   try {
     const { input } = req.body
@@ -18,12 +12,47 @@ export async function addChannel(req, res, next) {
     const channelId = await resolveChannelId(input)
     const details = await fetchChannelDetails(channelId)
 
-    // Upsert — update if already exists in this workspace
-    const channel = await Channel.findOneAndUpdate(
-      { channelId: details.channelId, workspaceId: req.workspaceId },
-      { ...details, workspaceId: req.workspaceId },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+    // Perform atomic upsert using global unique channelId
+    const result = await Channel.findOneAndUpdate(
+      { channelId: details.channelId },
+      {
+        $set: {
+          title: details.title,
+          handle: details.handle,
+          profileImage: details.profileImage,
+          banner: details.banner,
+          description: details.description,
+          subscribers: details.subscribers,
+          totalViews: details.totalViews,
+          totalVideos: details.totalVideos,
+        },
+        $setOnInsert: {
+          channelId: details.channelId,
+          workspaceId: req.workspaceId,
+        }
+      },
+      {
+        new: true,
+        upsert: true,
+        includeResultMetadata: true,
+        setDefaultsOnInsert: true
+      }
     )
+
+    const channel = result.value
+    const wasUpdated = result.lastErrorObject?.updatedExisting
+
+    if (wasUpdated) {
+      console.log(`[Channel Connect] Reused existing channel document: ${channel.channelId} (currently associated with workspace: ${channel.workspaceId})`)
+
+      return res.status(200).json({
+        success: true,
+        message: 'Channel already connected.',
+        data: channel
+      })
+    }
+
+    console.log(`[Channel Connect] Created new channel: ${channel.channelId} for workspace ${req.workspaceId}`)
 
     // Fetch and store latest videos
     const videos = await fetchChannelVideos(channelId)
@@ -37,10 +66,11 @@ export async function addChannel(req, res, next) {
       }))
       await Video.bulkWrite(bulkOps)
     }
-
-    warmCommentCache(channelId)
-
-    res.status(201).json({ success: true, data: channel })
+    res.status(201).json({
+      success: true,
+      message: 'Channel connected successfully.',
+      data: channel
+    })
   } catch (err) {
     next(err)
   }
@@ -89,9 +119,6 @@ export async function refreshChannel(req, res, next) {
       }))
       await Video.bulkWrite(bulkOps)
     }
-
-    warmCommentCache(id)
-
     res.json({ success: true, data: channel })
   } catch (err) {
     next(err)
