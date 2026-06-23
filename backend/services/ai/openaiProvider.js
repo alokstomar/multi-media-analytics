@@ -250,9 +250,30 @@ export class OpenAIProvider extends AIProviderInterface {
   constructor(apiKey) {
     super()
     this.apiKey = apiKey
-    this.client = new OpenAI({ apiKey })
-    this.fastModel = process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini'
-    this.premiumModel = process.env.OPENAI_PREMIUM_MODEL || 'gpt-4o'
+
+    const clientOptions = { apiKey }
+
+    // Azure AI Foundry / any OpenAI-compatible gateway. Stock OpenAI SDK
+    // works against /openai/v1 — just needs baseURL. Bearer auth (which
+    // the SDK auto-sends from apiKey) is accepted; no api-version needed.
+    if (process.env.OPENAI_BASE_URL) {
+      clientOptions.baseURL = process.env.OPENAI_BASE_URL
+    }
+
+    this.client = new OpenAI(clientOptions)
+
+    // The Azure resource may only deploy specific models (e.g. gpt-5.4).
+    // Fail loudly at boot if model envs are missing rather than 404-ing
+    // on first request with DeploymentNotFound.
+    this.fastModel = process.env.OPENAI_FAST_MODEL
+    this.premiumModel = process.env.OPENAI_PREMIUM_MODEL
+    if (!this.fastModel || !this.premiumModel) {
+      throw new Error(
+        'OPENAI_FAST_MODEL and OPENAI_PREMIUM_MODEL must both be set '
+        + 'when AI_PROVIDER=openai. The Azure resource has no default deployment.'
+      )
+    }
+
     this.dailyBudget = parseFloat(process.env.OPENAI_DAILY_BUDGET_USD) || Infinity
     this.monthlyBudget = parseFloat(process.env.OPENAI_MONTHLY_BUDGET_USD) || Infinity
     // Subclass hooks: keep these as instance fields so GroqProvider (or any
@@ -261,6 +282,11 @@ export class OpenAIProvider extends AIProviderInterface {
     this.providerKey = 'openai'         // stored on AIResponseCache.provider
     this.providerLabel = 'OpenAI'       // used in error messages
     this.logPrefix = '[AI OpenAI]'      // used in console.log success lines
+
+    console.log(
+      `[AI OpenAI] Initializing — baseURL=${this.client.baseURL}, `
+      + `fast=${this.fastModel}, premium=${this.premiumModel}`
+    )
   }
 
   // ── Core execution pipeline ───────────────────────────────────────────
@@ -268,6 +294,7 @@ export class OpenAIProvider extends AIProviderInterface {
   async healthCheck() {
     return {
       provider: this.providerKey,
+      baseURL: this.client.baseURL,
       fastModel: this.fastModel,
       premiumModel: this.premiumModel,
       apiKeyConfigured: !!this.apiKey,
@@ -347,15 +374,30 @@ export class OpenAIProvider extends AIProviderInterface {
     // userContent may be a string (text-only) or an array (vision: text + image_url).
     const userContent = options.userContent || userPrompt
 
-    const completion = await this.client.chat.completions.create({
-      model,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent }
-      ],
-      temperature
-    })
+    let completion
+    try {
+      completion = await this.client.chat.completions.create({
+        model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ],
+        temperature
+      })
+    } catch (err) {
+      // OpenAI SDK throws APIError with .status, .error.code, .error.message.
+      // Log the structured shape so Azure-side failures are diagnosable
+      // instead of looking like opaque 503s on the frontend.
+      console.error(`[AI OpenAI] ${method} call failed —`, {
+        status: err.status,
+        code: err.error?.code,
+        message: err.error?.message || err.message,
+        baseURL: this.client.baseURL,
+        model,
+      })
+      throw err
+    }
 
     const responseTimeMs = Date.now() - startTime
     const rawContent = completion.choices?.[0]?.message?.content || '{}'
