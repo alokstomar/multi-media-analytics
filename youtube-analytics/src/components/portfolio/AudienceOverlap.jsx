@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from 'recharts'
 import { Users, Link2, Sparkles, AlertCircle, Activity } from 'lucide-react'
@@ -14,6 +14,10 @@ export default function AudienceOverlap({ selectedIds }) {
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+  const selectedIdsKey = (selectedIds || []).join(',')
+
+  useEffect(() => { emptyRetriedRef.current = false }, [selectedIdsKey])
 
   const activeChannels = useMemo(() => {
     return (allChannels || []).filter(c => selectedIds.includes(c.id))
@@ -43,6 +47,9 @@ export default function AudienceOverlap({ selectedIds }) {
         }))
         setData({ pairs: mapped, radarData: Array.isArray(d.radarData) ? d.radarData : [] })
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setData(null)
         setStatus('empty')
@@ -126,7 +133,7 @@ export default function AudienceOverlap({ selectedIds }) {
 
       {status === 'loading' && <LoadingState label="Computing audience overlap..." />}
       {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-      {status === 'empty' && <EmptyState message="No portfolio intelligence available" />}
+      {status === 'empty' && <EmptyState message="No portfolio intelligence yet — the AI service may be warming up" onRetry={load} />}
 
       {status === 'idle' && activePair && (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Compass, Crown, Star, TrendingUp, Eye, ChevronDown, ChevronUp, Award, Users, Activity, Target } from 'lucide-react'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
@@ -40,6 +40,10 @@ export default function ContentGapAnalysis({ selectedIds }) {
   const [gaps, setGaps] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+  const selectedIdsKey = (selectedIds || []).join(',')
+
+  useEffect(() => { emptyRetriedRef.current = false }, [selectedIdsKey])
 
   const activeChannels = useMemo(() => (allChannels || []).filter(c => selectedIds.includes(c.id)), [allChannels, selectedIds])
 
@@ -62,6 +66,9 @@ export default function ContentGapAnalysis({ selectedIds }) {
         })
         setGaps(mapped)
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setGaps(null)
         setStatus('empty')
@@ -170,7 +177,7 @@ export default function ContentGapAnalysis({ selectedIds }) {
       <div className="p-5 space-y-3">
         {status === 'loading' && <LoadingState label="Analyzing portfolio content gaps..." />}
         {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-        {status === 'empty' && <EmptyState message="No portfolio intelligence available" />}
+        {status === 'empty' && <EmptyState message="No portfolio intelligence yet — the AI service may be warming up" onRetry={load} />}
 
         {status === 'idle' && gaps && (
           <>

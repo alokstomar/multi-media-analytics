@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts"
 import { LineChart, Line, Area, XAxis, YAxis, Tooltip } from "recharts"
-import { getInsights } from '../../../services/api'
+import { getInsights, getStrategistTips } from '../../../services/api'
 import { CardSkeleton, ErrorBanner } from '../../ui/Skeleton'
 import { usePlatform } from '../../../hooks/usePlatform'
+import { usePlatformAdapter } from '../../../platformAdapters'
 
 const DEFAULT_TRAFFIC = [
   { name: "YouTube Search", value: 45.2, color: "#3B82F6" },
@@ -34,24 +35,146 @@ const INSIGHT_COLORS = {
   warning: { bg: 'bg-orange-50', border: 'border-orange-100', iconBg: 'bg-orange-100', iconColor: 'text-orange-600', titleColor: 'text-orange-700', btnColor: 'text-orange-600 hover:text-orange-800' },
 }
 
+function AIInsightsSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="animate-pulse bg-gray-50 border border-gray-100 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="h-8 w-8 rounded-lg bg-gray-200" />
+            <div className="flex-1">
+              <div className="h-3 w-3/4 rounded bg-gray-200 mb-2" />
+              <div className="h-2.5 w-1/2 rounded bg-gray-100" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyState({ title, description }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 text-center h-full">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 text-gray-400 mb-3">
+        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        </svg>
+      </div>
+      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+      <p className="text-xs text-gray-500 mt-1 max-w-[200px]">{description}</p>
+    </div>
+  )
+}
+
 export default function DashboardBottom({ trafficSources, subscribersGrowth, overview, channelId, loading: parentLoading, overrideInsights }) {
   const [insights, setInsights] = useState([])
   const [insightsLoading, setInsightsLoading] = useState(true)
+  const [insightsError, setInsightsError] = useState(false)
   const { selectedPlatform } = usePlatform()
 
+  const {
+    selectedAccount: selectedChannel,
+    accounts: channels,
+    loading: loadingChannels
+  } = usePlatformAdapter()
+
+  const channel =
+    selectedChannel ||
+    channels?.[0] ||
+    null
+
+  const normalizedChannel = channel
+    ? {
+        ...channel,
+        resolvedId:
+          channel.channelId ||
+          channel.id ||
+          channel._id ||
+          null
+      }
+    : null
+
+  if (import.meta.env.DEV) {
+    console.log({
+      selectedChannel,
+      channels,
+      normalizedChannel
+    })
+  }
+
+  const loadInsights = useCallback(async (resolvedChannelId) => {
+    setInsightsLoading(true)
+    setInsightsError(false)
+    try {
+      const res = await getInsights(resolvedChannelId)
+      const primary = Array.isArray(res?.data) ? res.data : []
+      if (primary.length > 0) {
+        setInsights(primary)
+        return
+      }
+      try {
+        const tipsRes = await getStrategistTips(resolvedChannelId)
+        const tips = tipsRes?.data?.tips || tipsRes?.tips || []
+        const mapped = tips.map((t) => ({
+          type: t.severity === 'warning' ? 'warning'
+            : t.severity === 'positive' ? 'positive'
+            : 'info',
+          title: t.title || t.heading || 'AI Insight',
+          description: t.desc || t.description || t.body || '',
+          action: t.cta || 'Review',
+        }))
+        setInsights(mapped)
+      } catch (fallbackErr) {
+        setInsightsError(true)
+        setInsights([])
+      }
+    } catch (err) {
+      try {
+        const tipsRes = await getStrategistTips(resolvedChannelId)
+        const tips = tipsRes?.data?.tips || tipsRes?.tips || []
+        const mapped = tips.map((t) => ({
+          type: t.severity === 'warning' ? 'warning'
+            : t.severity === 'positive' ? 'positive'
+            : 'info',
+          title: t.title || t.heading || 'AI Insight',
+          description: t.desc || t.description || t.body || '',
+          action: t.cta || 'Review',
+        }))
+        setInsights(mapped)
+      } catch (fallbackErr) {
+        setInsightsError(true)
+        setInsights([])
+      }
+    } finally {
+      setInsightsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (overrideInsights) {
+    const shouldUseOverride =
+      Array.isArray(overrideInsights) &&
+      overrideInsights.length > 0
+
+    if (shouldUseOverride) {
       setInsights(overrideInsights)
       setInsightsLoading(false)
+      setInsightsError(false)
       return
     }
-    if (!channelId) return
-    setInsightsLoading(true)
-    getInsights(channelId)
-      .then((res) => setInsights(res.data || []))
-      .catch(() => setInsights([]))
-      .finally(() => setInsightsLoading(false))
-  }, [channelId, overrideInsights])
+
+    if (overrideInsights === null || overrideInsights === undefined) {
+      const resolvedChannelId = normalizedChannel?.resolvedId
+      if (!resolvedChannelId) {
+        setInsightsLoading(false)
+        return
+      }
+      loadInsights(resolvedChannelId)
+    } else {
+      setInsights(overrideInsights || [])
+      setInsightsLoading(false)
+    }
+  }, [normalizedChannel?.resolvedId, overrideInsights, loadInsights])
 
   const trafficData = trafficSources?.length ? trafficSources : DEFAULT_TRAFFIC
   const subsData = (subscribersGrowth || []).map((s) => ({
@@ -270,47 +393,81 @@ export default function DashboardBottom({ trafficSources, subscribersGrowth, ove
         </div>
 
         <div className="flex-1 space-y-3">
-          {insightsLoading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="animate-pulse bg-gray-50 border border-gray-100 rounded-xl p-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-lg bg-gray-200" />
-                  <div className="flex-1">
-                    <div className="h-3 w-3/4 rounded bg-gray-200 mb-2" />
-                    <div className="h-2.5 w-1/2 rounded bg-gray-100" />
+          {(() => {
+            if (loadingChannels) {
+              return <AIInsightsSkeleton />
+            }
+
+            const hasAnyChannel = !!normalizedChannel || (Array.isArray(channels) && channels.length > 0)
+
+            if (!hasAnyChannel) {
+              return (
+                <EmptyState
+                  title="No channel connected"
+                  description="Connect a YouTube channel to see AI insights"
+                />
+              )
+            }
+
+            if (insightsLoading) {
+              return <AIInsightsSkeleton />
+            }
+
+            if (insightsError) {
+              return (
+                <div className="space-y-3">
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
+                    <p className="text-sm font-semibold text-red-700">Couldn't load AI insights</p>
+                    <p className="text-xs text-red-600 mt-1">The AI service may be warming up. Try again in a moment.</p>
                   </div>
+                  <button
+                    onClick={() => normalizedChannel?.resolvedId && loadInsights(normalizedChannel.resolvedId)}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-xl px-4 py-2.5 transition-colors"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Retry
+                  </button>
                 </div>
-              </div>
-            ))
-          ) : insights.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
-              Add a channel to see AI insights
-            </div>
-          ) : (
-            insights.slice(0, 3).map((insight, i) => {
-              const c = INSIGHT_COLORS[insight.type] || INSIGHT_COLORS.info
+              )
+            }
+
+            if (!insights?.length) {
+              return (
+                <EmptyState
+                  title="No insights yet"
+                  description="Insights are still being generated for this channel — check back shortly."
+                />
+              )
+            }
+
+            return insights.slice(0, 3).map((insight, i) => {
+              const c = INSIGHT_COLORS[insight?.type] || INSIGHT_COLORS.info
               return (
                 <div key={i} className={`${c.bg} border ${c.border} rounded-xl p-4 transition-all duration-200 hover:scale-[1.01]`}>
                   <div className="flex items-start gap-3">
                     <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${c.iconBg}`}>
                       <svg className={`h-4 w-4 ${c.iconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        {insight.type === 'positive' && <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />}
-                        {insight.type === 'info' && <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />}
-                        {insight.type === 'warning' && <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
+                        {insight?.type === 'positive' && <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />}
+                        {insight?.type === 'info' && <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />}
+                        {insight?.type === 'warning' && <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <p className={`text-sm font-medium ${c.titleColor}`}>{insight.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{insight.description}</p>
+                      <p className={`text-sm font-medium ${c.titleColor}`}>{insight?.title}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {insight?.description || insight?.desc || 'No description available'}
+                      </p>
                       <button className={`mt-2 text-xs font-semibold ${c.btnColor} transition-colors`}>
-                        {insight.action} &rarr;
+                        {insight?.action || 'Review'} &rarr;
                       </button>
                     </div>
                   </div>
                 </div>
               )
             })
-          )}
+          })()}
         </div>
       </div>
     </div>

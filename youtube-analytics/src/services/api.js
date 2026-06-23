@@ -173,6 +173,9 @@ export const getContentGaps = (channelId, payload = {}) =>
 export const getStrategistTips = (channelId, payload = {}) =>
   api.post(`/api/intelligence/${channelId}/strategist`, payload).then((r) => r.data)
 
+export const summarizeAlerts = (channelId, payload = {}) =>
+  api.post(`/api/intelligence/${channelId}/alerts-summary`, payload).then((r) => r.data)
+
 export const predictPerformance = (channelId, payload = {}) =>
   api.post(`/api/intelligence/${channelId}/predict-performance`, payload).then((r) => r.data)
 

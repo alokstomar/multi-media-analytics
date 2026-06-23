@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, CheckCircle2, AlertTriangle, Lightbulb, TrendingUp } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
@@ -12,6 +12,9 @@ export default function AIStrategistPanel() {
   const [tips, setTips] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+
+  useEffect(() => { emptyRetriedRef.current = false }, [activeChannelId])
 
   const load = useCallback(async () => {
     if (!activeChannelId || activeChannelId === 'demo' || activeChannelId === 'demo_ig') {
@@ -26,6 +29,9 @@ export default function AIStrategistPanel() {
       if (Array.isArray(apiTips) && apiTips.length > 0) {
         setTips(apiTips)
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setTips(null)
         setStatus('empty')
@@ -53,7 +59,7 @@ export default function AIStrategistPanel() {
 
       {status === 'loading' && <LoadingState label="Loading strategist tips..." />}
       {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-      {status === 'empty' && <EmptyState message="No strategist recommendations available" />}
+      {status === 'empty' && <EmptyState message="No strategist recommendations yet — the AI service may be warming up" onRetry={load} />}
       {status === 'idle' && tips && (
         <>
           <div className="space-y-3.5">

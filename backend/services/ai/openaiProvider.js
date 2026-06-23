@@ -22,6 +22,7 @@ const CACHE_TTL = {
   generateVideoIdeas: 12,
   generateShortsIdeas: 12,
   getStrategistTips: 6,
+  summarizeAlerts: 6,
   // Portfolio Intelligence — expensive multi-channel computations, cache aggressively
   getPortfolioStrategist: 24,
   getAudienceOverlap: 24,
@@ -191,6 +192,12 @@ const VALIDATORS = {
       && typeof t.text === 'string'
       && ['positive', 'warning', 'info'].includes(t.type)
     )
+  },
+  summarizeAlerts(obj) {
+    if (!obj || typeof obj.summary !== 'string') return false
+    if (!Array.isArray(obj.topRisks) || !Array.isArray(obj.topOpportunities)) return false
+    const itemOk = (i) => i && typeof i.title === 'string' && typeof i.desc === 'string'
+    return obj.topRisks.every(itemOk) && obj.topOpportunities.every(itemOk)
   },
   // ── Portfolio Intelligence ────────────────────────────────────────────
   getPortfolioStrategist(obj) {
@@ -868,6 +875,55 @@ Generate 5 prioritized strategist tips grounded in this data.`
       systemPrompt,
       userPrompt,
       { temperature: 0.6 }
+    )
+  }
+
+  async summarizeAlerts(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+    const derivedAlerts = Array.isArray(ctx.derivedAlerts) ? ctx.derivedAlerts : []
+    const snapshot = ctx.analyticsSnapshot || {}
+
+    const totalViews = Number(channel.totalViews || 0)
+    const totalVideos = Number(channel.totalVideos || 0)
+    const avgViewsPerVideo = totalVideos > 0 ? Math.round(totalViews / totalVideos) : 0
+
+    const systemPrompt = `You are a YouTube analytics advisor summarizing risks and opportunities for a creator.
+Return ONLY valid JSON with this exact structure:
+{
+  "summary": "<2-3 sentence executive briefing grounded in the derived alerts and analytics>",
+  "topRisks": [
+    { "title": "<short label>", "desc": "<one concrete sentence with the implication and next action>", "severity": "<one of: 'high' | 'medium' | 'low'>" }
+  ],
+  "topOpportunities": [
+    { "title": "<short label>", "desc": "<one concrete sentence with the upside and how to capture it>", "severity": "<one of: 'high' | 'medium' | 'low'>" }
+  ]
+}
+Produce 2-3 risks and 2-3 opportunities. Each must reference real signals from the inputs — never invent metrics.`
+
+    const userPrompt = `Channel: ${channel.title || '(unknown)'}
+Subscribers: ${channel.subscribers || 0}
+Total views: ${totalViews}
+Total videos: ${totalVideos}
+Average views per video: ${avgViewsPerVideo}
+Engagement rate: ${snapshot.engagementRate ?? '(unknown)'}%
+Views growth: ${snapshot.viewsGrowth ?? '(unknown)'}%
+
+Recent uploads (top 5):
+${videos.slice(0, 5).map((v) => `- ${(v.title || '').slice(0, 80)} — ${Number(v.views || 0).toLocaleString()} views`).join('\n') || '(none tracked)'}
+
+Derived alerts already computed from analytics:
+${derivedAlerts.map((a) => `- [${a.severity || 'info'}] ${a.title}: ${a.desc}`).join('\n') || '(none)'}
+
+Summarize the top risks and opportunities for this channel.`
+
+    return this._execute(
+      'summarizeAlerts',
+      { channelId, derivedCount: derivedAlerts.length },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.5 }
     )
   }
 }

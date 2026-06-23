@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Sparkles, AlertCircle } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
@@ -13,6 +13,9 @@ export default function VideoIdeasSection() {
   const [ideas, setIdeas] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+
+  useEffect(() => { emptyRetriedRef.current = false }, [activeChannelId])
 
   const load = useCallback(async () => {
     if (!activeChannelId || activeChannelId === 'demo' || activeChannelId === 'demo_ig') {
@@ -27,6 +30,9 @@ export default function VideoIdeasSection() {
       if (Array.isArray(apiIdeas) && apiIdeas.length > 0) {
         setIdeas(apiIdeas)
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setIdeas(null)
         setStatus('empty')
@@ -71,7 +77,7 @@ export default function VideoIdeasSection() {
             <div className="p-6 pt-3 border-t border-gray-50 max-h-[640px] overflow-y-auto scrollbar-thin bg-gray-50">
               {status === 'loading' && <LoadingState label="Generating ideas..." />}
               {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-              {status === 'empty' && <EmptyState message="No recommendations available" />}
+              {status === 'empty' && <EmptyState message="No recommendations yet — the AI service may be warming up" onRetry={load} />}
               {status === 'idle' && ideas && (
                 <div className="space-y-4.5">
                   {ideas.map((idea, idx) => (

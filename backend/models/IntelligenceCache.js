@@ -5,7 +5,7 @@ const intelligenceCacheSchema = new mongoose.Schema({
   feature: {
     type: String,
     required: true,
-    enum: ['video-ideas', 'shorts-ideas', 'content-gaps', 'strategist-tips', 'analyze-thumbnail', 'analyze-script', 'portfolio-summary', 'portfolio-audience-overlap', 'portfolio-cross-promotion', 'portfolio-content-gaps', 'portfolio-cannibalization', 'portfolio-strategist', 'generate-linkedin', 'generate-twitter', 'generate-instagram', 'generate-threads', 'repurpose-content', 'improve-content', 'analytics', 'insights', 'dashboard'],
+    enum: ['video-ideas', 'shorts-ideas', 'content-gaps', 'strategist-tips', 'analyze-thumbnail', 'analyze-script', 'alerts-summary', 'portfolio-summary', 'portfolio-audience-overlap', 'portfolio-cross-promotion', 'portfolio-content-gaps', 'portfolio-cannibalization', 'portfolio-strategist', 'generate-linkedin', 'generate-twitter', 'generate-instagram', 'generate-threads', 'repurpose-content', 'improve-content', 'analytics', 'insights', 'dashboard'],
   },
   result: { type: mongoose.Schema.Types.Mixed, required: true },
   createdAt: { type: Date, default: Date.now },

@@ -9,6 +9,7 @@ import {
   getContentGaps,
   getStrategistTips,
   predictPerformance,
+  summarizeAlerts,
 } from '../controllers/intelligenceController.js'
 
 const router = Router()
@@ -21,6 +22,7 @@ router.post('/:channelId/shorts-ideas', generateShortsIdeas)
 router.post('/:channelId/content-gaps', getContentGaps)
 router.post('/:channelId/strategist', getStrategistTips)
 router.post('/:channelId/predict-performance', predictPerformance)
+router.post('/:channelId/alerts-summary', summarizeAlerts)
 
 // Input-scoped analysis (no channel required)
 router.post('/analyze/title', analyzeTitle)

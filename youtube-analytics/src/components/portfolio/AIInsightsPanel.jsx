@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Sparkles, BrainCircuit, ArrowUpRight, Zap } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
@@ -14,6 +14,10 @@ export default function AIInsightsPanel({ selectedIds }) {
   const [report, setReport] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+  const selectedIdsKey = (selectedIds || []).join(',')
+
+  useEffect(() => { emptyRetriedRef.current = false }, [selectedIdsKey])
 
   const activeChannels = useMemo(() => {
     return (allChannels || []).filter(c => selectedIds.includes(c.id))
@@ -32,6 +36,9 @@ export default function AIInsightsPanel({ selectedIds }) {
       if (d && (d.healthScore != null || Array.isArray(d.recommendations) || Array.isArray(d.growthRadar))) {
         setReport(d)
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setReport(null)
         setStatus('empty')
@@ -79,7 +86,7 @@ export default function AIInsightsPanel({ selectedIds }) {
 
       {status === 'loading' && <LoadingState label="Generating strategist report..." />}
       {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-      {status === 'empty' && <EmptyState message="No portfolio intelligence available" />}
+      {status === 'empty' && <EmptyState message="No portfolio intelligence yet — the AI service may be warming up" onRetry={load} />}
 
       {status === 'idle' && report && (
         <>

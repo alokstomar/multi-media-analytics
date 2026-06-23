@@ -172,3 +172,26 @@ export async function predictPerformance(req, res, next) {
     next(err)
   }
 }
+
+export async function summarizeAlerts(req, res, next) {
+  try {
+    const { channelId } = req.params
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const result = await cachedAI(channelId, 'alerts-summary', () =>
+      getAIProvider().summarizeAlerts(
+        {
+          channelId,
+          channel,
+          videos,
+          analyticsSnapshot: req.body?.analyticsSnapshot || {},
+          derivedAlerts: Array.isArray(req.body?.derivedAlerts) ? req.body.derivedAlerts : [],
+        },
+        { channelId, feature: 'alerts-summary' },
+      ),
+    )
+    attachAIHeaders(res)
+    res.json(withMeta(result, 'alerts-summary'))
+  } catch (err) {
+    next(err)
+  }
+}

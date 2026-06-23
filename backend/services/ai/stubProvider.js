@@ -358,6 +358,46 @@ export class StubAIProvider extends AIProviderInterface {
     return { tips }
   }
 
+  async summarizeAlerts(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || 'demo'
+    const channel = ctx.channel || {}
+    const derivedAlerts = Array.isArray(ctx.derivedAlerts) ? ctx.derivedAlerts : []
+    const { slice } = seededRandom('alerts-summary::' + channelId)
+
+    const name = channel.title || 'This channel'
+    const subs = channel.subscribers || 0
+    const highSeverity = derivedAlerts.filter((a) => a.severity === 'high').length
+    const positiveCount = derivedAlerts.filter((a) => a.severity === 'positive' || a.type === 'positive').length
+
+    return {
+      summary: `${name} has ${derivedAlerts.length} active signals (${highSeverity} high severity, ${positiveCount} positive). Focus on the highest-impact risks first — most channels see meaningful lift within 2 weeks of addressing the top item.`,
+      topRisks: [
+        {
+          title: 'Algorithmic momentum decay',
+          desc: 'Without a consistent upload cadence, YouTube deprioritizes the channel in recommendations within 14 days.',
+          severity: slice(0) > 0.4 ? 'high' : 'medium',
+        },
+        {
+          title: 'Audience retention drop-off',
+          desc: 'Front-load value in the first 5 seconds — the median creator loses 30% of viewers before the 30-second mark.',
+          severity: 'medium',
+        },
+      ],
+      topOpportunities: [
+        {
+          title: 'Shorts repurposing from top long-form',
+          desc: `With ${subs.toLocaleString()} subscribers, repackaging the top 3 long-form videos as Shorts typically yields 30-45% discovery lift.`,
+          severity: 'high',
+        },
+        {
+          title: 'Best-performing upload window',
+          desc: 'Schedule releases for 6-9 PM in the audience\'s primary timezone to maximize first-hour velocity.',
+          severity: 'medium',
+        },
+      ],
+    }
+  }
+
   async getContentGaps(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || 'demo'
     const channel = ctx.channel || {}

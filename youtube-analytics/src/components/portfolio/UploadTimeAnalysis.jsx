@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Clock, AlertTriangle } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
@@ -12,6 +12,10 @@ export default function UploadTimeAnalysis({ selectedIds }) {
   const [warnings, setWarnings] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+  const selectedIdsKey = (selectedIds || []).join(',')
+
+  useEffect(() => { emptyRetriedRef.current = false }, [selectedIdsKey])
 
   const activeChannels = useMemo(() => (allChannels || []).filter(c => selectedIds.includes(c.id)), [allChannels, selectedIds])
 
@@ -28,6 +32,9 @@ export default function UploadTimeAnalysis({ selectedIds }) {
       if (Array.isArray(d?.warnings) && d.warnings.length > 0) {
         setWarnings(d.warnings)
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setWarnings(null)
         setStatus('empty')
@@ -82,7 +89,7 @@ export default function UploadTimeAnalysis({ selectedIds }) {
       <div className="p-5 space-y-3">
         {status === 'loading' && <LoadingState label="Analyzing cannibalization risks..." />}
         {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-        {status === 'empty' && <EmptyState message="No portfolio intelligence available" />}
+        {status === 'empty' && <EmptyState message="No portfolio intelligence yet — the AI service may be warming up" onRetry={load} />}
 
         {status === 'idle' && warnings && warnings.length > 0 && (
           <>

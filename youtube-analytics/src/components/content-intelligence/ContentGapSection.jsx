@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Compass, AlertCircle, TrendingUp, Search, Layers } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
@@ -13,6 +13,9 @@ export default function ContentGapSection() {
   const [compData, setCompData] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const emptyRetriedRef = useRef(false)
+
+  useEffect(() => { emptyRetriedRef.current = false }, [activeChannelId])
 
   const load = useCallback(async () => {
     if (!activeChannelId || activeChannelId === 'demo' || activeChannelId === 'demo_ig') {
@@ -27,6 +30,9 @@ export default function ContentGapSection() {
       if (Array.isArray(d?.gaps) && d.gaps.length > 0) {
         setCompData({ gaps: d.gaps, nicheTrends: d.nicheTrends || [] })
         setStatus('idle')
+      } else if (!emptyRetriedRef.current) {
+        emptyRetriedRef.current = true
+        setTimeout(load, 400)
       } else {
         setCompData(null)
         setStatus('empty')
@@ -71,7 +77,7 @@ export default function ContentGapSection() {
             <div className="p-6 pt-3 border-t border-gray-50 bg-gray-50">
               {status === 'loading' && <LoadingState label="Analyzing content gaps..." />}
               {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
-              {status === 'empty' && <EmptyState message="No content gaps available" />}
+              {status === 'empty' && <EmptyState message="No content gaps yet — the AI service may be warming up" onRetry={load} />}
               {status === 'idle' && compData && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   <div className="lg:col-span-7 space-y-4">
