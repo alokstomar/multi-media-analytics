@@ -1,8 +1,13 @@
 import Channel from '../models/Channel.js'
 import Video from '../models/Video.js'
 import IntelligenceCache from '../models/IntelligenceCache.js'
-import { getAIProvider } from '../services/ai/index.js'
+import { getAIProvider, getActiveProviderName } from '../services/ai/index.js'
 import { AppError } from '../utils/errorHandler.js'
+
+function attachAIHeaders(res) {
+  res.setHeader('X-AI-Provider', getActiveProviderName())
+  res.setHeader('X-AI-Status', 'success')
+}
 
 async function loadChannelContext(channelId, workspaceId) {
   const channel = await Channel.findOne({ channelId, workspaceId })
@@ -43,6 +48,7 @@ function withMeta(result, feature) {
 export async function healthCheck(_req, res) {
   const provider = getAIProvider()
   const health = await provider.healthCheck()
+  attachAIHeaders(res)
   res.json({ success: true, data: health })
 }
 
@@ -50,6 +56,7 @@ export async function analyzeTitle(req, res, next) {
   try {
     const provider = getAIProvider()
     const result = await provider.analyzeTitle(req.body, { feature: 'analyze-title' })
+    attachAIHeaders(res)
     res.json(withMeta(result, 'analyze-title'))
   } catch (err) {
     next(err)
@@ -62,6 +69,7 @@ export async function analyzeThumbnail(req, res, next) {
     const result = await cachedAI(cacheKey, 'analyze-thumbnail', () =>
       getAIProvider().analyzeThumbnail(req.body, { feature: 'analyze-thumbnail' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'analyze-thumbnail'))
   } catch (err) {
     next(err)
@@ -74,6 +82,7 @@ export async function analyzeScript(req, res, next) {
     const result = await cachedAI(cacheKey, 'analyze-script', () =>
       getAIProvider().analyzeScript(req.body, { feature: 'analyze-script' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'analyze-script'))
   } catch (err) {
     next(err)
@@ -90,6 +99,7 @@ export async function generateVideoIdeas(req, res, next) {
         { channelId, feature: 'video-ideas' },
       ),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'video-ideas'))
   } catch (err) {
     next(err)
@@ -106,6 +116,7 @@ export async function generateShortsIdeas(req, res, next) {
         { channelId, feature: 'shorts-ideas' },
       ),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'shorts-ideas'))
   } catch (err) {
     next(err)
@@ -122,6 +133,7 @@ export async function getContentGaps(req, res, next) {
         { channelId, feature: 'content-gaps' },
       ),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'content-gaps'))
   } catch (err) {
     next(err)
@@ -138,6 +150,7 @@ export async function getStrategistTips(req, res, next) {
         { channelId, feature: 'strategist-tips' },
       ),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'strategist-tips'))
   } catch (err) {
     next(err)
@@ -153,6 +166,7 @@ export async function predictPerformance(req, res, next) {
       { channelId, channel, videos, ...req.body },
       { channelId, feature: 'predict-performance' },
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'predict-performance'))
   } catch (err) {
     next(err)

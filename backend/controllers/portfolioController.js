@@ -1,8 +1,13 @@
 import Channel from '../models/Channel.js'
 import Video from '../models/Video.js'
 import IntelligenceCache from '../models/IntelligenceCache.js'
-import { getAIProvider } from '../services/ai/index.js'
+import { getAIProvider, getActiveProviderName } from '../services/ai/index.js'
 import { AppError } from '../utils/errorHandler.js'
+
+function attachAIHeaders(res) {
+  res.setHeader('X-AI-Provider', getActiveProviderName())
+  res.setHeader('X-AI-Status', 'success')
+}
 
 async function loadPortfolioContext(channelIds, workspaceId) {
   const channels = await Channel.find({ channelId: { $in: channelIds }, workspaceId }).lean()
@@ -57,12 +62,14 @@ export async function getPortfolioSummary(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({ channelsCount: 0, channels: [] }, 'portfolio-summary'))
     }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-summary', () =>
       getAIProvider().getPortfolioSummary({ channels }, { feature: 'portfolio-summary' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-summary'))
   } catch (err) { next(err) }
 }
@@ -71,12 +78,14 @@ export async function getAudienceOverlap(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({ pairs: [], radarData: [] }, 'portfolio-audience-overlap'))
     }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-audience-overlap', () =>
       getAIProvider().getAudienceOverlap({ channels }, { feature: 'portfolio-audience-overlap' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-audience-overlap'))
   } catch (err) { next(err) }
 }
@@ -85,12 +94,14 @@ export async function getCrossPromotion(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({ promotions: [] }, 'portfolio-cross-promotion'))
     }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-cross-promotion', () =>
       getAIProvider().getCrossPromotion({ channels }, { feature: 'portfolio-cross-promotion' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-cross-promotion'))
   } catch (err) { next(err) }
 }
@@ -99,12 +110,14 @@ export async function getPortfolioContentGaps(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({ gaps: [] }, 'portfolio-content-gaps'))
     }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-content-gaps', () =>
       getAIProvider().getPortfolioContentGaps({ channels }, { feature: 'portfolio-content-gaps' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-content-gaps'))
   } catch (err) { next(err) }
 }
@@ -113,12 +126,14 @@ export async function getCannibalization(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({ warnings: [] }, 'portfolio-cannibalization'))
     }
     const channels = await loadPortfolioContext(channelIds, req.workspaceId)
     const result = await cachedPortfolioAI(channelIds, 'portfolio-cannibalization', () =>
       getAIProvider().getCannibalization({ channels }, { feature: 'portfolio-cannibalization' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-cannibalization'))
   } catch (err) { next(err) }
 }
@@ -127,6 +142,7 @@ export async function getPortfolioStrategist(req, res, next) {
   try {
     const channelIds = validateChannelIds(req)
     if (channelIds.length === 0) {
+      attachAIHeaders(res)
       return res.json(withMeta({
         healthScore: 0,
         stabilityScore: 0,
@@ -151,6 +167,7 @@ export async function getPortfolioStrategist(req, res, next) {
     const result = await cachedPortfolioAI(channelIds, 'portfolio-strategist', () =>
       getAIProvider().getPortfolioStrategist({ channels }, { feature: 'portfolio-strategist' }),
     )
+    attachAIHeaders(res)
     res.json(withMeta(result, 'portfolio-strategist'))
   } catch (err) { next(err) }
 }

@@ -1,13 +1,16 @@
 /**
  * Central error handler.
  *
- * Two responsibilities:
- *   1. Map known error classes to clean HTTP responses (409 for duplicates,
- *      503 for connection issues, 400 for AppError / validation).
+ * Responsibilities:
+ *   1. Map known error classes to clean HTTP responses (409 duplicates,
+ *      503 connection / AI unavailable, 400 AppError / validation).
  *   2. Ensure raw Mongoose / MongoDB errors and stack traces never reach the
  *      client. The production user must see generic messages like
  *      "Database connection unavailable" — never
  *      "users.findOne() buffering timed out after 10000ms".
+ *   3. Surface AI provider failures as structured 503s with
+ *      `{ aiUnavailable: true, provider }` so the frontend can render a
+ *      clean error state instead of fake stub output.
  *
  * Internal logs still get the full error for debugging.
  */
@@ -55,6 +58,7 @@ export function errorHandler(err, _req, res, _next) {
   let status = err?.status || 500
   let message = err?.message || 'Internal Server Error'
   let exposed = message
+  const body = { success: false }
 
   // 1. AppError (intentional, operational) — trust the message as-is.
   if (err?.name === 'AppError' || err instanceof AppError) {
@@ -83,18 +87,37 @@ export function errorHandler(err, _req, res, _next) {
     status = 503
     exposed = 'Database connection unavailable. Please try again shortly.'
   }
-  // 5. Fallback — never leak raw internals on a 5xx.
+  // 5. AIProviderError — production AI failed; surface clean 503 + provider.
+  else if (err?.name === 'AIProviderError' || err?.aiUnavailable === true) {
+    status = 503
+    exposed = 'AI provider temporarily unavailable'
+    body.aiUnavailable = true
+    body.provider = err.provider || 'unknown'
+    console.warn('[AI Provider Error]', JSON.stringify({
+      provider: err.provider,
+      model: err.model || null,
+      endpoint: err.method || null,
+      error: err.cause?.message || err.message,
+    }))
+    if (err.provider) res.setHeader('X-AI-Provider', err.provider)
+    res.setHeader('X-AI-Status', 'failed')
+  }
+  // 6. Fallback — never leak raw internals on a 5xx.
   else if (status >= 500) {
     exposed = 'Internal server error. Please try again later.'
   }
 
-  // Internal log keeps the full error for debugging.
-  console.error(`[Error] ${status} — ${message}`)
-  if (err?.stack && status >= 500) {
-    console.error(err.stack)
+  body.error = exposed
+
+  // Internal log keeps the full error for debugging (skip for AIProviderError
+  // — already logged in structured form above).
+  if (!(err?.name === 'AIProviderError' || err?.aiUnavailable === true)) {
+    console.error(`[Error] ${status} — ${message}`)
+    if (err?.stack && status >= 500) {
+      console.error(err.stack)
+    }
   }
 
-  const body = { success: false, error: exposed }
   if (process.env.NODE_ENV !== 'production' && err?.stack) {
     body.stack = err.stack
   }

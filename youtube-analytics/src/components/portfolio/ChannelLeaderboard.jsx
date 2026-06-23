@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trophy, ChevronUp, ChevronDown, BadgeCheck, Flame, ArrowUpRight, ArrowDownRight, Eye, Users, Clock, Sparkles } from 'lucide-react'
+import { Trophy, ChevronUp, ChevronDown, BadgeCheck, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
 import { usePlatform } from '../../context/PlatformContext'
 
@@ -19,20 +19,17 @@ export default function ChannelLeaderboard({ selectedIds }) {
       { key: 'views', label: isIG ? 'Reach' : 'Views' },
       { key: 'engagement', label: 'Engagement' },
       { key: 'growth', label: 'Growth %' },
-      { key: 'watchTime', label: isIG ? 'Impressions' : 'Watch Time' },
-      { key: 'viralScore', label: 'Viral Score' },
       { key: 'videos', label: isIG ? 'Posts' : 'Videos' }
     ]
   }, [selectedPlatform])
 
   const [sortMetric, setSortMetric] = useState('subscribers')
-  const [sortDirection, setSortDirection] = useState('desc') // 'asc' or 'desc'
+  const [sortDirection, setSortDirection] = useState('desc')
 
   const activeChannels = useMemo(() => {
-    return allChannels.filter(c => selectedIds.includes(c.id))
+    return (allChannels || []).filter(c => selectedIds.includes(c.id))
   }, [allChannels, selectedIds])
 
-  // Get raw value for sorting
   const getMetricValue = (channel, metric) => {
     const raw = channel._raw || {}
     const analytics = channel._analytics || {}
@@ -44,12 +41,8 @@ export default function ChannelLeaderboard({ selectedIds }) {
       case 'growth':
         return Number(analytics.viewsGrowth || 0)
       case 'engagement':
-        return Number(analytics.engagementRate || raw.engagementRate || 3.5)
-      case 'watchTime':
-        return Number(raw.totalViews || 0) * 0.08
-      case 'viralScore':
-        // Dynamic but stable viral score
-        return Math.round(72 + ((Number(raw.totalViews || 0) % 27)))
+        const eng = Number(analytics.engagementRate || raw.engagementRate || 0)
+        return eng
       case 'videos':
         return Number(raw.totalVideos || 0)
       default:
@@ -57,7 +50,12 @@ export default function ChannelLeaderboard({ selectedIds }) {
     }
   }
 
-  // Sorted list of active channels
+  const hasEngagement = (channel) => {
+    const raw = channel._raw || {}
+    const analytics = channel._analytics || {}
+    return Number(analytics.engagementRate || raw.engagementRate || 0) > 0
+  }
+
   const sortedChannels = useMemo(() => {
     const list = [...activeChannels]
     list.sort((a, b) => {
@@ -93,6 +91,7 @@ export default function ChannelLeaderboard({ selectedIds }) {
       case 'views':
         return <span className="font-bold text-gray-700">{fmtNumber(rawValue)}</span>
       case 'growth':
+        if (rawValue === 0 && !channel._analytics?.viewsGrowth) return <span className="text-gray-300">—</span>
         const isUp = rawValue >= 0
         return (
           <span className={`inline-flex items-center gap-0.5 font-bold text-[11px] px-1.5 py-0.5 rounded-full ${
@@ -103,16 +102,8 @@ export default function ChannelLeaderboard({ selectedIds }) {
           </span>
         )
       case 'engagement':
+        if (!hasEngagement(channel)) return <span className="text-gray-300">—</span>
         return <span className="font-bold text-purple-600">{rawValue.toFixed(1)}%</span>
-      case 'watchTime':
-        return <span className="font-semibold text-gray-600">{fmtNumber(Math.round(rawValue))}{selectedPlatform === 'instagram' ? '' : ' hrs'}</span>
-      case 'viralScore':
-        return (
-          <span className="inline-flex items-center gap-1 font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-100/50">
-            <Flame className="h-3.5 w-3.5 fill-orange-500 stroke-orange-500" />
-            {rawValue}
-          </span>
-        )
       case 'videos':
         return <span className="font-medium text-gray-500">{rawValue}</span>
       default:
@@ -120,7 +111,6 @@ export default function ChannelLeaderboard({ selectedIds }) {
     }
   }
 
-  // Helper for rank indicator
   const getRankBadge = (rank) => {
     if (rank === 1) return <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold shadow-sm ring-2 ring-amber-100">1</span>
     if (rank === 2) return <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-400 text-white text-[10px] font-bold shadow-sm ring-2 ring-slate-100">2</span>
@@ -150,9 +140,9 @@ export default function ChannelLeaderboard({ selectedIds }) {
 
       {activeChannels.length === 0 ? (
         <div className="py-12 text-center border-2 border-dashed border-gray-100 rounded-2xl bg-gray-50/10">
-          <Trophy className="h-8 w-8 text-gray-300 mx-auto animate-pulse" />
+          <Trophy className="h-8 w-8 text-gray-300 mx-auto" />
           <p className="text-sm font-bold text-gray-500 mt-2">No channels connected</p>
-          <p className="text-xs text-gray-400 mt-1">Please select channels from the strip above to rank them.</p>
+          <p className="text-xs text-gray-400 mt-1">Select channels from the strip above to rank them.</p>
         </div>
       ) : (
         <div className="overflow-x-auto -mx-6 px-6">
@@ -207,10 +197,8 @@ export default function ChannelLeaderboard({ selectedIds }) {
                       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                       className="group border-b border-gray-50 hover:bg-gray-50/40 transition-colors relative"
                     >
-                      {/* Rank Indicator */}
                       <td className="py-4 font-bold">{getRankBadge(rank)}</td>
 
-                      {/* Channel Info */}
                       <td className="py-4 pl-4 min-w-[180px]">
                         <div className="flex items-center gap-3">
                           <div className="relative">
@@ -238,25 +226,10 @@ export default function ChannelLeaderboard({ selectedIds }) {
                         </div>
                       </td>
 
-                      {/* Subscribers */}
                       <td className="py-4">{renderMetricValue(channel, 'subscribers')}</td>
-
-                      {/* Views */}
                       <td className="py-4">{renderMetricValue(channel, 'views')}</td>
-
-                      {/* Engagement */}
                       <td className="py-4">{renderMetricValue(channel, 'engagement')}</td>
-
-                      {/* Growth */}
                       <td className="py-4">{renderMetricValue(channel, 'growth')}</td>
-
-                      {/* Watch Time */}
-                      <td className="py-4">{renderMetricValue(channel, 'watchTime')}</td>
-
-                      {/* Viral Score */}
-                      <td className="py-4">{renderMetricValue(channel, 'viralScore')}</td>
-
-                      {/* Videos */}
                       <td className="py-4">{renderMetricValue(channel, 'videos')}</td>
                     </motion.tr>
                   )
