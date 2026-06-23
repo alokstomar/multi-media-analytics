@@ -1,15 +1,16 @@
 import { AlertCircle, RefreshCw, Inbox } from 'lucide-react'
 
-export function LoadingState({ label = 'Loading...' }) {
+export function LoadingState({ label = 'Generating AI insights…' }) {
   return (
     <div className="py-10 flex flex-col items-center justify-center gap-3">
       <div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-100 border-t-violet-600" />
       <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">{label}</p>
+      <p className="text-[10px] text-gray-400 font-medium">This may take up to 30 seconds</p>
     </div>
   )
 }
 
-export function ErrorState({ message = 'AI service temporarily unavailable', onRetry }) {
+export function ErrorState({ message = 'AI service temporarily unavailable', onRetry, retrying = false }) {
   return (
     <div className="py-10 flex flex-col items-center justify-center gap-3">
       <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-50 text-red-500">
@@ -19,9 +20,11 @@ export function ErrorState({ message = 'AI service temporarily unavailable', onR
       {onRetry && (
         <button
           onClick={onRetry}
-          className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-white border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer"
+          disabled={retrying}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-white border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <RefreshCw className="h-3 w-3" /> Retry
+          <RefreshCw className={`h-3 w-3 ${retrying ? 'animate-spin' : ''}`} />
+          {retrying ? 'Retrying…' : 'Retry'}
         </button>
       )}
     </div>

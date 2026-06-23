@@ -60,7 +60,7 @@ export default function AIStrategistPanel() {
         </div>
       </div>
 
-      {status === 'loading' && <LoadingState label="Loading strategist tips..." />}
+      {status === 'loading' && <LoadingState label="Generating strategist tips..." />}
       {status === 'error' && <ErrorState message={errorMsg} onRetry={load} />}
       {status === 'empty' && <EmptyState message="No strategist recommendations yet — the AI service may be warming up" onRetry={load} />}
       {status === 'idle' && tips && (

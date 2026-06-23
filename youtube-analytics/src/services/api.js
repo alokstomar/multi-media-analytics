@@ -28,6 +28,25 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Cold Azure gpt-5.4 calls reliably take 17-22s. The global 15s timeout is
+// correct for non-AI APIs (DB reads, auth, channel CRUD) but aborts every
+// cold AI request before Azure responds. Use a per-request override on AI
+// endpoints only.
+const AI_TIMEOUT = 90000
+
+// In-flight deduplication: per-(method, channelId) memoization of pending
+// promises. Prevents duplicate GPT calls when multiple components mount at
+// the same time or when the user spams retry. Resolved/rejected promises are
+// evicted immediately so the next call always hits the network fresh.
+const inflight = new Map()
+function dedupeAI(key, factory) {
+  const existing = inflight.get(key)
+  if (existing) return existing
+  const p = factory().finally(() => inflight.delete(key))
+  inflight.set(key, p)
+  return p
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────
 export const authSignup = (payload) =>
   api.post('/api/auth/signup', payload).then((r) => r.data)
@@ -153,50 +172,64 @@ export const compareChannels = (channelIds) =>
 
 // ── Content Intelligence (AI stubs) ──────────────────────────────────
 export const analyzeTitle = (payload) =>
-  api.post('/api/intelligence/analyze/title', payload).then((r) => r.data)
+  api.post('/api/intelligence/analyze/title', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
 
 export const analyzeThumbnail = (payload) =>
-  api.post('/api/intelligence/analyze/thumbnail', payload).then((r) => r.data)
+  api.post('/api/intelligence/analyze/thumbnail', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
 
 export const analyzeScript = (payload) =>
-  api.post('/api/intelligence/analyze/script', payload).then((r) => r.data)
+  api.post('/api/intelligence/analyze/script', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
 
 export const generateVideoIdeas = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/ideas`, payload).then((r) => r.data)
+  dedupeAI(`video-ideas:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/ideas`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const generateShortsIdeas = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/shorts-ideas`, payload).then((r) => r.data)
+  dedupeAI(`shorts-ideas:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/shorts-ideas`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getContentGaps = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/content-gaps`, payload).then((r) => r.data)
+  dedupeAI(`content-gaps:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/content-gaps`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getStrategistTips = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/strategist`, payload).then((r) => r.data)
+  dedupeAI(`strategist-tips:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/strategist`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const summarizeAlerts = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/alerts-summary`, payload).then((r) => r.data)
+  dedupeAI(`alerts-summary:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/alerts-summary`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const predictPerformance = (channelId, payload = {}) =>
-  api.post(`/api/intelligence/${channelId}/predict-performance`, payload).then((r) => r.data)
+  dedupeAI(`predict-performance:${channelId}`, () =>
+    api.post(`/api/intelligence/${channelId}/predict-performance`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 // Portfolio Intelligence
+const portfolioKey = (channelIds) => [...channelIds].sort().join('|')
+
 export const getPortfolioSummary = (channelIds) =>
-  api.post('/api/portfolio/intelligence/summary', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-summary:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/summary', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getPortfolioAudienceOverlap = (channelIds) =>
-  api.post('/api/portfolio/intelligence/audience-overlap', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-audience-overlap:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/audience-overlap', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getPortfolioCrossPromotion = (channelIds) =>
-  api.post('/api/portfolio/intelligence/cross-promotion', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-cross-promotion:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/cross-promotion', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getPortfolioContentGaps = (channelIds) =>
-  api.post('/api/portfolio/intelligence/content-gaps', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-content-gaps:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/content-gaps', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getPortfolioCannibalization = (channelIds) =>
-  api.post('/api/portfolio/intelligence/cannibalization', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-cannibalization:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/cannibalization', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 export const getPortfolioStrategist = (channelIds) =>
-  api.post('/api/portfolio/intelligence/strategist', { channelIds }).then((r) => r.data)
+  dedupeAI(`portfolio-strategist:${portfolioKey(channelIds)}`, () =>
+    api.post('/api/portfolio/intelligence/strategist', { channelIds }, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
 // ── Content Studio ────────────────────────────────────────────────────
 export const generateLinkedInPost = (payload) =>
