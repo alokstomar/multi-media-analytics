@@ -70,9 +70,8 @@ function scaleStatValue(valStr, unit, range) {
 }
 
 export default function AnalyticsStats({ data, range }) {
-  const stats = data || []
-  
-  // Scale only cumulative/volume metrics, keeping ratios (CTR, Engagement Rate) stable
+  const stats = Array.isArray(data) ? data : []
+
   const scaledStats = stats.map((s) => {
     const isCumulative = s.label === 'Watch Time' || s.label === 'Revenue Growth'
     return {
@@ -81,13 +80,23 @@ export default function AnalyticsStats({ data, range }) {
     }
   })
 
+  if (scaledStats.length === 0) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-10 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.02), 0 4px 12px -2px rgba(0,0,0,0.04)' }}>
+        <p className="text-sm font-bold text-gray-500">No analytics data available</p>
+        <p className="text-xs text-gray-400 mt-1">Connect a channel to view performance metrics</p>
+      </div>
+    )
+  }
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {scaledStats.map((s, i) => {
         const Icon = icons[i % icons.length]
         const theme = cardThemes[i % cardThemes.length]
-        const sparkData = s.spark.map((v) => ({ v }))
-        const isUp = s.trend.startsWith('+')
+        const sparkData = Array.isArray(s.spark) ? s.spark.map((v) => ({ v })) : []
+        const trendStr = typeof s.trend === 'string' ? s.trend : ''
+        const isUp = trendStr.startsWith('+')
 
         return (
           <motion.div
@@ -138,24 +147,28 @@ export default function AnalyticsStats({ data, range }) {
                 </span>
 
                 <div className="h-6 w-[72px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id={`spark-${i}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={theme.stroke} stopOpacity={0.25} />
-                          <stop offset="100%" stopColor={theme.stroke} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="v"
-                        stroke={theme.stroke}
-                        strokeWidth={1.5}
-                        fill={`url(#spark-${i})`}
-                        dot={false}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                  {sparkData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id={`spark-${i}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={theme.stroke} stopOpacity={0.25} />
+                            <stop offset="100%" stopColor={theme.stroke} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <Area
+                          type="monotone"
+                          dataKey="v"
+                          stroke={theme.stroke}
+                          strokeWidth={1.5}
+                          fill={`url(#spark-${i})`}
+                          dot={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-full w-full rounded-md bg-gray-50/60" />
+                  )}
                 </div>
               </div>
             </div>

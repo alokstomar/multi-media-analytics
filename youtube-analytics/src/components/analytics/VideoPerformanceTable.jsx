@@ -19,7 +19,7 @@ const viralColor = (s) => {
 export default function VideoPerformanceTable({ data, contentLabel }) {
   const { selectedPlatform } = usePlatform()
   const isYoutube = selectedPlatform === 'youtube'
-  const videos = data || []
+  const videos = Array.isArray(data) ? data : []
   const label = contentLabel || 'Video'
 
   return (
@@ -42,20 +42,27 @@ export default function VideoPerformanceTable({ data, contentLabel }) {
         </button>
       </div>
 
-      {/* Sticky table header */}
-      <div className="sticky top-0 z-10 grid grid-cols-12 gap-3 px-5 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-gray-50/80 backdrop-blur-sm">
-        <div className="col-span-1">#</div>
-        <div className="col-span-4">{label}</div>
-        <div className="col-span-1 text-right">{isYoutube ? 'Views' : 'Reach'}</div>
-        <div className="col-span-2 text-right">{isYoutube ? 'Watch Time' : 'Likes'}</div>
-        <div className="col-span-1 text-right">Eng</div>
-        <div className="col-span-1 text-right">{isYoutube ? 'CTR' : 'Saves'}</div>
-        <div className="col-span-2 text-right">Viral Score</div>
-      </div>
+      {videos.length === 0 ? (
+        <div className="px-5 py-12 text-center">
+          <p className="text-sm font-bold text-gray-500">No {label.toLowerCase()} data available</p>
+          <p className="text-xs text-gray-400 mt-1">Videos will appear here once the channel has uploaded content</p>
+        </div>
+      ) : (
+        <>
+          {/* Sticky table header */}
+          <div className="sticky top-0 z-10 grid grid-cols-12 gap-3 px-5 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-gray-50/80 backdrop-blur-sm">
+            <div className="col-span-1">#</div>
+            <div className="col-span-4">{label}</div>
+            <div className="col-span-1 text-right">{isYoutube ? 'Views' : 'Reach'}</div>
+            <div className="col-span-2 text-right">{isYoutube ? 'Watch Time' : 'Likes'}</div>
+            <div className="col-span-1 text-right">Eng</div>
+            <div className="col-span-1 text-right">{isYoutube ? 'CTR' : 'Saves'}</div>
+            <div className="col-span-2 text-right">Viral Score</div>
+          </div>
 
-      {/* Rows */}
-      <div className="divide-y divide-gray-50">
-        {videos.map((v, i) => {
+          {/* Rows */}
+          <div className="divide-y divide-gray-50">
+            {videos.map((v, i) => {
           const badge = badgeMap[v.badge] || badgeMap.Stable
           const BadgeIcon = badge.icon
           const vc = viralColor(v.viral)
@@ -122,7 +129,9 @@ export default function VideoPerformanceTable({ data, contentLabel }) {
             </motion.div>
           )
         })}
-      </div>
+          </div>
+        </>
+      )}
     </motion.div>
   )
 }

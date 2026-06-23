@@ -14,25 +14,17 @@ const insightStyles = {
 }
 
 export default function RetentionSection({ data, insights, estimated }) {
-  const retentionData = data || []
-
-  const defaultInsights = [
-    { color: 'blue', title: 'Best hook timing', desc: 'Front-load value in first 5 seconds for max retention' },
-    { color: 'orange', title: 'Drop-off at 0:28', desc: '28% of viewers leave before the 30-second mark' },
-    { color: 'purple', title: 'Suggested intro: <5s', desc: 'Channels with short intros see +18% retention' },
-    { color: 'green', title: 'Viewer behavior', desc: 'Mobile viewers drop 12% faster than desktop users' },
-  ]
-  const insightCards = insights || defaultInsights
+  const retentionData = Array.isArray(data) ? data : []
+  const insightCards = Array.isArray(insights) ? insights : []
 
   const avgRetention = retentionData.length
-    ? Math.round(retentionData.reduce((s, d) => s + d.retention, 0) / retentionData.length)
+    ? Math.round(retentionData.reduce((s, d) => s + (d.retention || 0), 0) / retentionData.length)
     : 0
 
-  // Find biggest drop-off
   let maxDrop = 0
   let dropIdx = 1
   retentionData.forEach((d, i) => {
-    if (i > 0) {
+    if (i > 0 && typeof retentionData[i - 1].retention === 'number' && typeof d.retention === 'number') {
       const drop = retentionData[i - 1].retention - d.retention
       if (drop > maxDrop) { maxDrop = drop; dropIdx = i }
     }
@@ -63,48 +55,55 @@ export default function RetentionSection({ data, insights, estimated }) {
         </div>
 
         <div className="mt-4">
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={retentionData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-              <defs>
-                <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#8B5CF6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="second" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} domain={[0, 100]} tickCount={5} unit="%" />
-              <Tooltip contentStyle={tooltipStyleCompact} formatter={(v) => [`${v}%`, 'Retention']} />
-              {/* Milestone lines */}
-              <ReferenceLine y={50} stroke="#F59E0B" strokeDasharray="4 4" strokeOpacity={0.5} />
-              <ReferenceLine y={25} stroke="#EF4444" strokeDasharray="4 4" strokeOpacity={0.4} />
-              <Area
-                type="monotone"
-                dataKey="retention"
-                stroke="#8B5CF6"
-                strokeWidth={2.5}
-                fill="url(#retGrad)"
-                dot={{ r: 2.5, fill: '#8B5CF6', stroke: '#fff', strokeWidth: 1.5 }}
-                activeDot={{ r: 5, stroke: '#8B5CF6', strokeWidth: 2, fill: '#fff' }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          {retentionData.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-sm font-bold text-gray-500">No retention data available</p>
+              <p className="text-xs text-gray-400 mt-1">Connect YouTube Analytics API to view the retention curve</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={250}>
+              <AreaChart data={retentionData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.2} />
+                    <stop offset="100%" stopColor="#8B5CF6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="second" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} domain={[0, 100]} tickCount={5} unit="%" />
+                <Tooltip contentStyle={tooltipStyleCompact} formatter={(v) => [`${v}%`, 'Retention']} />
+                <ReferenceLine y={50} stroke="#F59E0B" strokeDasharray="4 4" strokeOpacity={0.5} />
+                <ReferenceLine y={25} stroke="#EF4444" strokeDasharray="4 4" strokeOpacity={0.4} />
+                <Area
+                  type="monotone"
+                  dataKey="retention"
+                  stroke="#8B5CF6"
+                  strokeWidth={2.5}
+                  fill="url(#retGrad)"
+                  dot={{ r: 2.5, fill: '#8B5CF6', stroke: '#fff', strokeWidth: 1.5 }}
+                  activeDot={{ r: 5, stroke: '#8B5CF6', strokeWidth: 2, fill: '#fff' }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
-        {/* Legend + milestones */}
-        <div className="mt-3 flex items-center gap-5 text-[11px]">
-          <span className="flex items-center gap-1.5">
-            <span className="h-[6px] w-[6px] rounded-full bg-emerald-400" /> Strong hook
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-[6px] w-[6px] rounded-full bg-amber-400" /> 50% milestone
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-[6px] w-[6px] rounded-full bg-red-400" /> Critical drop-off
-          </span>
-          <span className="ml-auto text-[11px] text-gray-400">
-            Biggest drop: <span className="font-semibold text-amber-600">{maxDrop}%</span> at {retentionData[dropIdx]?.second}
-          </span>
-        </div>
+        {retentionData.length > 0 && (
+          <div className="mt-3 flex items-center gap-5 text-[11px]">
+            <span className="flex items-center gap-1.5">
+              <span className="h-[6px] w-[6px] rounded-full bg-emerald-400" /> Strong hook
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-[6px] w-[6px] rounded-full bg-amber-400" /> 50% milestone
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-[6px] w-[6px] rounded-full bg-red-400" /> Critical drop-off
+            </span>
+            <span className="ml-auto text-[11px] text-gray-400">
+              Biggest drop: <span className="font-semibold text-amber-600">{maxDrop}%</span> at {retentionData[dropIdx]?.second}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── AI Insight Cards ──────────────────────────────── */}
@@ -117,32 +116,39 @@ export default function RetentionSection({ data, insights, estimated }) {
         </div>
 
         <div className="flex-1 space-y-2.5">
-          {insightCards.map((card, i) => {
-            const Icon = iconPicker[card.color] || BarChart3
-            const style = insightStyles[card.color] || insightStyles.blue
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: 0.25 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
-                className={`rounded-xl border p-3.5 ${style.bg} ${style.border} transition-all duration-200 hover:shadow-sm cursor-pointer group`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style.iconBg} transition-transform duration-200 group-hover:scale-110`}>
-                    <Icon className={`h-4 w-4 ${style.iconText}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-[5px] w-[5px] rounded-full ${style.dot}`} />
-                      <p className={`text-[13px] font-semibold ${style.title}`}>{card.title}</p>
+          {insightCards.length === 0 ? (
+            <div className="py-10 text-center rounded-xl border border-dashed border-gray-100">
+              <p className="text-xs font-bold text-gray-500">No AI insights available</p>
+              <p className="text-[11px] text-gray-400 mt-1">Insights appear when engagement data is connected</p>
+            </div>
+          ) : (
+            insightCards.map((card, i) => {
+              const Icon = iconPicker[card.color] || BarChart3
+              const style = insightStyles[card.color] || insightStyles.blue
+              return (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.3, delay: 0.25 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
+                  className={`rounded-xl border p-3.5 ${style.bg} ${style.border} transition-all duration-200 hover:shadow-sm cursor-pointer group`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style.iconBg} transition-transform duration-200 group-hover:scale-110`}>
+                      <Icon className={`h-4 w-4 ${style.iconText}`} />
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{card.desc}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`h-[5px] w-[5px] rounded-full ${style.dot}`} />
+                        <p className={`text-[13px] font-semibold ${style.title}`}>{card.title}</p>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{card.desc}</p>
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            )
-          })}
+                </motion.div>
+              )
+            })
+          )}
         </div>
       </div>
     </motion.div>

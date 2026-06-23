@@ -13,15 +13,17 @@ export default function PerformanceChart({ data, channelColor, range, hasEstimat
   const [period, setPeriod] = useState('Monthly')
   const [metric, setMetric] = useState('views')
 
-  const chartData = data || []
+  const chartData = Array.isArray(data) ? data : []
   const primaryColor = channelColor || '#3B82F6'
 
-  const { data: rangeData, estimated: rangeEstimated } = getRangePerformanceData(range, chartData)
+  const rangeResult = getRangePerformanceData(range, chartData) || {}
+  const rangeData = Array.isArray(rangeResult.data) ? rangeResult.data : []
+  const rangeEstimated = !!rangeResult.estimated
   const showEstimated = hasEstimates || rangeEstimated
 
   const displayData = (range === '1Y' && period === 'Weekly')
     ? rangeData.flatMap((m) => {
-        const estBaseViews = m.views / 4
+        const estBaseViews = (m.views || 0) / 4
         return Array.from({ length: 4 }, (_, i) => {
           const v = Math.round(estBaseViews * (0.9 + i * 0.05))
           return {
@@ -110,33 +112,40 @@ export default function PerformanceChart({ data, channelColor, range, hasEstimat
       </div>
 
       <div className="px-2 pb-5">
-        <ResponsiveContainer width="100%" height={340}>
-          <AreaChart data={displayData} margin={{ top: 5, right: 14, left: -6, bottom: 0 }}>
-            <defs>
-              <linearGradient id="perfGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={primaryColor} stopOpacity={0.18} />
-                <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} dy={8} />
-            <YAxis tickFormatter={fmt} tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} width={48} />
-            <Tooltip
-              contentStyle={tooltipStyle}
-              formatter={(v) => [fmt(v), metric === 'views' ? 'Views' : 'Watch Time (hrs)']}
-              labelStyle={{ color: '#6B7280', fontSize: 11, marginBottom: 4 }}
-            />
-            <Area
-              type="monotone"
-              dataKey={metric}
-              stroke={primaryColor}
-              strokeWidth={2.5}
-              fill="url(#perfGrad)"
-              dot={false}
-              activeDot={{ r: 5, stroke: primaryColor, strokeWidth: 2, fill: '#fff' }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {displayData.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-sm font-bold text-gray-500">No performance data available</p>
+            <p className="text-xs text-gray-400 mt-1">Monthly view data will appear here once analytics is connected</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={340}>
+            <AreaChart data={displayData} margin={{ top: 5, right: 14, left: -6, bottom: 0 }}>
+              <defs>
+                <linearGradient id="perfGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={primaryColor} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} dy={8} />
+              <YAxis tickFormatter={fmt} tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} width={48} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                formatter={(v) => [fmt(v), metric === 'views' ? 'Views' : 'Watch Time (hrs)']}
+                labelStyle={{ color: '#6B7280', fontSize: 11, marginBottom: 4 }}
+              />
+              <Area
+                type="monotone"
+                dataKey={metric}
+                stroke={primaryColor}
+                strokeWidth={2.5}
+                fill="url(#perfGrad)"
+                dot={false}
+                activeDot={{ r: 5, stroke: primaryColor, strokeWidth: 2, fill: '#fff' }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </motion.div>
   )

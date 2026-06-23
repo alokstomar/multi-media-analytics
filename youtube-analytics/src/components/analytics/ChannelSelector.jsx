@@ -10,6 +10,7 @@ export default function ChannelSelector() {
     loading: channelsLoading,
   } = usePlatformAdapter()
   const isTransitioning = false
+  const channels = Array.isArray(allChannels) ? allChannels : []
 
   if (channelsLoading) {
     return (
@@ -35,7 +36,7 @@ export default function ChannelSelector() {
     >
       {/* Cards row */}
       <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
-        {allChannels.map((channel, i) => {
+        {channels.map((channel, i) => {
           const isActive = channel.id === activeChannelId
 
           return (
@@ -131,7 +132,7 @@ export default function ChannelSelector() {
         <motion.button
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: allChannels.length * 0.06 }}
+          transition={{ duration: 0.4, delay: channels.length * 0.06 }}
           whileHover={{ y: -3, transition: { duration: 0.2 } }}
           whileTap={{ scale: 0.97 }}
           className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-gray-200 px-6 min-w-[150px] text-center hover:border-gray-300 hover:bg-gray-50/50 transition-all duration-200 cursor-pointer"

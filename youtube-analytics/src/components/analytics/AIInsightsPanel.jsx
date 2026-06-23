@@ -28,7 +28,7 @@ const typeConfig = {
 }
 
 export default function AIInsightsPanel({ insights }) {
-  const items = insights || []
+  const items = Array.isArray(insights) ? insights : []
 
   return (
     <motion.div
@@ -51,37 +51,44 @@ export default function AIInsightsPanel({ insights }) {
 
       {/* Insight cards */}
       <div className="flex-1 space-y-2.5">
-        {items.map((ins, i) => {
-          const config = typeConfig[ins.type] || typeConfig.info
-          const Icon = iconMap[ins.icon] || BarChart3
+        {items.length === 0 ? (
+          <div className="py-10 text-center rounded-xl border border-dashed border-gray-100">
+            <p className="text-xs font-bold text-gray-500">No AI insights available</p>
+            <p className="text-[11px] text-gray-400 mt-1 max-w-[220px] mx-auto">Insights appear once analytics data is connected for this channel</p>
+          </div>
+        ) : (
+          items.map((ins, i) => {
+            const config = typeConfig[ins.type] || typeConfig.info
+            const Icon = iconMap[ins.icon] || BarChart3
 
-          return (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3, delay: 0.45 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
-              className="group relative rounded-xl border border-gray-100 bg-white p-3.5 hover:border-gray-200 hover:shadow-sm transition-all duration-200 cursor-pointer overflow-hidden"
-            >
-              {/* Left severity bar */}
-              <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl ${config.bar}`} />
+            return (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: 0.45 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+                className="group relative rounded-xl border border-gray-100 bg-white p-3.5 hover:border-gray-200 hover:shadow-sm transition-all duration-200 cursor-pointer overflow-hidden"
+              >
+                {/* Left severity bar */}
+                <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl ${config.bar}`} />
 
-              <div className="flex items-start gap-3 pl-1">
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${config.iconBg} group-hover:scale-110 transition-transform duration-200`}>
-                  <Icon className={`h-3.5 w-3.5 ${config.iconColor}`} />
+                <div className="flex items-start gap-3 pl-1">
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${config.iconBg} group-hover:scale-110 transition-transform duration-200`}>
+                    <Icon className={`h-3.5 w-3.5 ${config.iconColor}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[12px] font-semibold ${config.title} leading-tight`}>{ins.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{ins.desc}</p>
+                    <button className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-400 group-hover:text-blue-600 transition-colors duration-200">
+                      {ins.action}
+                      <ArrowRight className="h-3 w-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-[12px] font-semibold ${config.title} leading-tight`}>{ins.title}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{ins.desc}</p>
-                  <button className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-400 group-hover:text-blue-600 transition-colors duration-200">
-                    {ins.action}
-                    <ArrowRight className="h-3 w-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200" />
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )
-        })}
+              </motion.div>
+            )
+          })
+        )}
       </div>
     </motion.div>
   )
