@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fmt } from '../../utils/format'
 import { tooltipStyleCompact } from '../../data/chartConfigs'
+import EstimatedBadge from '../ui/EstimatedBadge'
+import EmptyState from '../ui/EmptyState'
 
 const tabs = [
   { key: 'likes', label: 'Likes', color: '#EF4444' },
@@ -11,7 +13,7 @@ const tabs = [
   { key: 'subs', label: 'Subs Gained', color: '#8B5CF6' },
 ]
 
-export default function EngagementAnalytics({ data, range }) {
+export default function EngagementAnalytics({ data, estimated }) {
   const [active, setActive] = useState('likes')
   const rawData = Array.isArray(data) ? data : []
   const t = tabs.find((x) => x.key === active) || tabs[0]
@@ -33,7 +35,10 @@ export default function EngagementAnalytics({ data, range }) {
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <h3 className="text-[16px] font-bold text-gray-900 tracking-[-0.01em]">Engagement Trends</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-[16px] font-bold text-gray-900 tracking-[-0.01em]">Engagement Trends</h3>
+            {estimated && <EstimatedBadge />}
+          </div>
           <p className="text-[12px] text-gray-400">Likes, comments, shares &amp; subscriber conversion</p>
         </div>
         <div className="flex rounded-lg bg-gray-100/80 p-[3px]">
@@ -60,10 +65,11 @@ export default function EngagementAnalytics({ data, range }) {
       </div>
 
       {!hasData ? (
-        <div className="py-12 text-center">
-          <p className="text-sm font-bold text-gray-500">No engagement data available</p>
-          <p className="text-xs text-gray-400 mt-1">Connect YouTube Analytics API to enable engagement trends</p>
-        </div>
+        <EmptyState
+          title="No engagement data available"
+          description="Connect YouTube Analytics API or add videos to enable engagement trends."
+          compact={true}
+        />
       ) : (
         <>
           <div className="grid grid-cols-4 gap-3 mb-5">

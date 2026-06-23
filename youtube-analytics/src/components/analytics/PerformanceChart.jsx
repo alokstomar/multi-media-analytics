@@ -6,6 +6,7 @@ import { tooltipStyle } from '../../data/chartConfigs'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { useAnalytics } from '../../context/AnalyticsContext'
 import EstimatedBadge from '../ui/EstimatedBadge'
+import EmptyState from '../ui/EmptyState'
 import { getRangePerformanceData } from '../../utils/analyticsRange'
 
 export default function PerformanceChart({ data, channelColor, range, hasEstimates }) {
@@ -113,10 +114,11 @@ export default function PerformanceChart({ data, channelColor, range, hasEstimat
 
       <div className="px-2 pb-5">
         {displayData.length === 0 ? (
-          <div className="py-16 text-center">
-            <p className="text-sm font-bold text-gray-500">No performance data available</p>
-            <p className="text-xs text-gray-400 mt-1">Monthly view data will appear here once analytics is connected</p>
-          </div>
+          <EmptyState
+            title="Performance history unavailable"
+            description="Performance history unavailable. Connect YouTube Analytics API for detailed history."
+            icon={TrendingUp}
+          />
         ) : (
           <ResponsiveContainer width="100%" height={340}>
             <AreaChart data={displayData} margin={{ top: 5, right: 14, left: -6, bottom: 0 }}>

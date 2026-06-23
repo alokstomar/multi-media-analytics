@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Calendar, Download, ChevronDown } from 'lucide-react'
+import { Calendar, Download } from 'lucide-react'
 import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
 import { exportToCSV } from '../utils/csvExport'
@@ -33,22 +33,16 @@ export default function Analytics() {
     analyticsData, 
     loading: isTransitioning, 
     activeAccount: activeChannel, 
-    accounts: allChannels, 
-    refreshAccounts: refreshChannels 
+    accounts: allChannels
   } = usePlatformAdapter()
 
-  const [isPortfolioMode, setIsPortfolioMode] = useState(false)
+  const [isPortfolioMode, setIsPortfolioMode] = useState(() => {
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+    return params.get('mode') === 'portfolio'
+  })
   const [selectedChannelIds, setSelectedChannelIds] = useState([])
 
   const isDemo = !activeChannel || activeChannel.id === 'demo' || activeChannel.id === 'demo_ig' || activeChannel.id === 'demo_tt' || activeChannel.id === 'demo_li'
-
-  // Check URL parameter for portfolio mode redirection
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('mode') === 'portfolio') {
-      setIsPortfolioMode(true)
-    }
-  }, [])
 
   // Auto-initialize with all connected channels.
   // Deps are primitives only — `allChannels` is unstable (new array identity every
@@ -56,6 +50,7 @@ export default function Analytics() {
   const channelCount = allChannels?.length || 0
   useEffect(() => {
     if (allChannels && allChannels.length && !selectedChannelIds.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedChannelIds(allChannels.map(c => c.id).filter(id => id !== 'demo' && id !== 'demo_ig' && id !== 'demo_tt' && id !== 'demo_li'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,7 +256,11 @@ export default function Analytics() {
             />
 
             {/* ── Engagement Analytics ─────────────────────────── */}
-            <EngagementAnalytics data={analyticsData?.engagementData} range={range} />
+            <EngagementAnalytics
+              data={analyticsData?.engagementData}
+              range={range}
+              estimated={analyticsData?.engagementEstimated}
+            />
 
             {/* ── Video Table + AI Panel ───────────────────────── */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

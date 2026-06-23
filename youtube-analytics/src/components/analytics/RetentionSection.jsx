@@ -1,8 +1,9 @@
 import { motion } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { Clock, AlertTriangle, Lightbulb, BarChart3, ArrowRight } from 'lucide-react'
+import { Clock, AlertTriangle, Lightbulb, BarChart3 } from 'lucide-react'
 import { tooltipStyleCompact } from '../../data/chartConfigs'
 import EstimatedBadge from '../ui/EstimatedBadge'
+import EmptyState from '../ui/EmptyState'
 
 const iconPicker = { blue: Clock, orange: AlertTriangle, purple: Lightbulb, green: BarChart3 }
 
@@ -56,10 +57,12 @@ export default function RetentionSection({ data, insights, estimated }) {
 
         <div className="mt-4">
           {retentionData.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-sm font-bold text-gray-500">No retention data available</p>
-              <p className="text-xs text-gray-400 mt-1">Connect YouTube Analytics API to view the retention curve</p>
-            </div>
+            <EmptyState
+              title="No retention data available"
+              description="No retention data available. Connect YouTube Analytics API or add videos to view the retention curve."
+              icon={Clock}
+              compact={true}
+            />
           ) : (
             <ResponsiveContainer width="100%" height={250}>
               <AreaChart data={retentionData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>

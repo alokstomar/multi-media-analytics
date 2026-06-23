@@ -56,7 +56,7 @@ function scaleStatValue(valStr, unit, range) {
   const hasK = valStr.includes('K')
   const hasM = valStr.includes('M')
 
-  let formatted = ''
+  let formatted;
   if (hasM) {
     formatted = `${scaled.toFixed(1)}M`
   } else if (hasK) {
@@ -131,22 +131,28 @@ export default function AnalyticsStats({ data, range }) {
 
               {/* Value */}
               <div className="flex items-baseline gap-1 mb-1">
-                <span className="text-[26px] font-bold text-gray-900 tracking-[-0.02em] leading-none">{s.value}</span>
+                <span className={`${s.value === 'Data unavailable' ? 'text-[15px]' : 'text-[26px]'} font-bold text-gray-900 tracking-[-0.02em] leading-none`}>{s.value}</span>
                 <span className="text-[13px] text-gray-400 font-medium">{s.unit}</span>
               </div>
 
               {/* Bottom row: sparkline + trend */}
-              <div className="flex items-center justify-between mt-2">
-                <span className={`inline-flex items-center gap-[3px] rounded-full px-2 py-[3px] text-[11px] font-semibold ${
-                  isUp
-                    ? 'bg-emerald-50 text-emerald-600'
-                    : 'bg-red-50 text-red-500'
-                }`}>
-                  {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                  {s.trend}
-                </span>
+              <div className="flex items-center justify-between mt-2 gap-2">
+                {trendStr && trendStr !== '—' ? (
+                  <span className={`inline-flex items-center gap-[3px] rounded-full px-2 py-[3px] text-[11px] font-semibold shrink-0 ${
+                    isUp
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-red-50 text-red-500'
+                  }`}>
+                    {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                    {trendStr}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 font-medium italic truncate max-w-[130px]" title={s.source}>
+                    {s.source}
+                  </span>
+                )}
 
-                <div className="h-6 w-[72px]">
+                <div className="h-6 w-[72px] shrink-0">
                   {sparkData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
