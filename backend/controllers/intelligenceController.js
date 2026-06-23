@@ -22,12 +22,15 @@ async function cachedAI(channelId, feature, providerFn) {
   // production responses when switching between AI_PROVIDER values.
   const provider = getActiveProviderName()
   const cacheFeature = `${provider}:${feature}`
+  const startedAt = new Date().toISOString()
   const startMs = Date.now()
 
   try {
     const cached = await IntelligenceCache.findCached(channelId, cacheFeature)
     if (cached) {
-      console.log('[AI]', { provider, method: feature, channelId, cacheHit: true, durationMs: Date.now() - startMs, resultCount: countResult(cached.result) })
+      const durationMs = Date.now() - startMs
+      const endedAt = new Date().toISOString()
+      console.log('[AI]', { provider, method: feature, channelId, cacheHit: true, startedAt, endedAt, durationMs, resultCount: countResult(cached.result) })
       return cached.result
     }
   } catch { /* cache read failure — proceed to provider */ }
@@ -35,7 +38,13 @@ async function cachedAI(channelId, feature, providerFn) {
   const result = await providerFn()
 
   const durationMs = Date.now() - startMs
-  console.log('[AI]', { provider, method: feature, channelId, cacheHit: false, durationMs, resultCount: countResult(result) })
+  const endedAt = new Date().toISOString()
+  console.log('[AI]', { provider, method: feature, channelId, cacheHit: false, startedAt, endedAt, durationMs, resultCount: countResult(result) })
+  // Cold gpt-5.4 calls legitimately take 15-25s; surface anything slower
+  // for capacity / Azure-deployment investigation.
+  if (durationMs > 30000) {
+    console.warn('[AI SLOW]', { provider, method: feature, channelId, durationMs, threshold: 30000 })
+  }
 
   try {
     await IntelligenceCache.upsert(channelId, cacheFeature, result)
