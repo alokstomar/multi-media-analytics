@@ -18,18 +18,40 @@ async function loadChannelContext(channelId, workspaceId) {
 }
 
 async function cachedAI(channelId, feature, providerFn) {
+  // Provider-aware cache key prevents stale stub data from poisoning
+  // production responses when switching between AI_PROVIDER values.
+  const provider = getActiveProviderName()
+  const cacheFeature = `${provider}:${feature}`
+  const startMs = Date.now()
+
   try {
-    const cached = await IntelligenceCache.findCached(channelId, feature)
-    if (cached) return cached.result
+    const cached = await IntelligenceCache.findCached(channelId, cacheFeature)
+    if (cached) {
+      console.log('[AI]', { provider, method: feature, channelId, cacheHit: true, durationMs: Date.now() - startMs, resultCount: countResult(cached.result) })
+      return cached.result
+    }
   } catch { /* cache read failure — proceed to provider */ }
 
   const result = await providerFn()
 
+  const durationMs = Date.now() - startMs
+  console.log('[AI]', { provider, method: feature, channelId, cacheHit: false, durationMs, resultCount: countResult(result) })
+
   try {
-    await IntelligenceCache.upsert(channelId, feature, result)
+    await IntelligenceCache.upsert(channelId, cacheFeature, result)
   } catch { /* cache write failure — non-blocking */ }
 
   return result
+}
+
+// Count the number of items in an AI result for logging purposes.
+function countResult(result) {
+  if (!result || typeof result !== 'object') return 0
+  if (Array.isArray(result.ideas)) return result.ideas.length
+  if (Array.isArray(result.tips)) return result.tips.length
+  if (Array.isArray(result.gaps)) return result.gaps.length
+  if (Array.isArray(result.topRisks)) return result.topRisks.length + (result.topOpportunities?.length || 0)
+  return Object.keys(result).length
 }
 
 function contentCacheKey(content, prefix) {

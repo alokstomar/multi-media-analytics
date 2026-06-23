@@ -13,9 +13,11 @@ export default function VideoIdeasSection() {
   const [ideas, setIdeas] = useState(null)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const emptyRetriedRef = useRef(false)
+  const retryCountRef = useRef(0)
 
-  useEffect(() => { emptyRetriedRef.current = false }, [activeChannelId])
+  const RETRY_DELAYS = [0, 2000, 5000]
+
+  useEffect(() => { retryCountRef.current = 0 }, [activeChannelId])
 
   const load = useCallback(async () => {
     if (!activeChannelId || activeChannelId === 'demo' || activeChannelId === 'demo_ig') {
@@ -30,9 +32,10 @@ export default function VideoIdeasSection() {
       if (Array.isArray(apiIdeas) && apiIdeas.length > 0) {
         setIdeas(apiIdeas)
         setStatus('idle')
-      } else if (!emptyRetriedRef.current) {
-        emptyRetriedRef.current = true
-        setTimeout(load, 400)
+        retryCountRef.current = 0
+      } else if (retryCountRef.current < RETRY_DELAYS.length - 1) {
+        retryCountRef.current += 1
+        setTimeout(load, RETRY_DELAYS[retryCountRef.current])
       } else {
         setIdeas(null)
         setStatus('empty')

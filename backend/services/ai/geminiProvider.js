@@ -24,6 +24,7 @@ const CACHE_TTL = {
   generateVideoIdeas: 12,
   generateShortsIdeas: 12,
   getStrategistTips: 6,
+  getContentGaps: 12,
   summarizeAlerts: 6
 }
 
@@ -184,6 +185,14 @@ const VALIDATORS = {
       typeof t.id === 'number'
       && typeof t.text === 'string'
       && ['positive', 'warning', 'info'].includes(t.type)
+    )
+  },
+  getContentGaps(obj) {
+    if (!obj || !Array.isArray(obj.gaps) || obj.gaps.length === 0) return false
+    return obj.gaps.every((g) =>
+      typeof g.id === 'number'
+      && typeof g.topic === 'string'
+      && typeof g.opportunity === 'string'
     )
   },
   summarizeAlerts(obj) {
@@ -878,6 +887,65 @@ Summarize the top risks and opportunities for this channel.`
       systemPrompt,
       userPrompt,
       { temperature: 0.5 }
+    )
+  }
+
+  async getContentGaps(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    const topVideos = videos.slice(0, 10).map((v) => ({
+      title: v.title,
+      views: v.views,
+    }))
+
+    const systemPrompt = `You are a YouTube content gap analyst specializing in niche opportunity discovery. You analyze a channel's existing content against search demand, competitor coverage, and trending topics to find high-value content gaps.
+Return ONLY valid JSON with this exact structure:
+{
+  "gaps": [
+    {
+      "id": <integer starting at 1>,
+      "topic": "<specific content gap topic — a concrete video title or keyword cluster>",
+      "opportunity": "<one of exactly: 'Very High' | 'High' | 'Medium'>",
+      "monthlyVolume": "<formatted like '850K searches' or '1.2M searches'>",
+      "difficulty": "<one of exactly: 'Low' | 'Medium' | 'High'>",
+      "badgeColor": "<one of exactly these Tailwind class strings:
+         'bg-red-50 text-red-600 border-red-100' (for Very High)
+         'bg-blue-50 text-blue-600 border-blue-100' (for High)
+         'bg-purple-50 text-purple-600 border-purple-100' (for Medium)>"
+    }
+  ],
+  "nicheTrends": [
+    {
+      "name": "<trending topic cluster name>",
+      "growth": "<formatted like '+340% in 90 days'>",
+      "demand": "<one of: 'Very High' | 'High' | 'Rising'>"
+    }
+  ]
+}
+Generate exactly 5 gaps and 4 niche trends.
+Each gap must reference topics the channel has NOT covered but that have high search demand in their niche.
+Niche trends must be specific to the channel's content category.`
+
+    const userPrompt = `Channel: ${channel.title || '(unknown)'}
+Niche / description: ${(channel.description || '(none provided)').substring(0, 400)}
+Subscribers: ${channel.subscribers || 0}
+Total videos: ${channel.totalVideos || 0}
+
+Recent videos for context:
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views`).join('\n')
+      : '  (no video data available)'}
+
+Identify 5 content gaps and 4 niche trends for this channel.`
+
+    return this._execute(
+      'getContentGaps',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.7 }
     )
   }
 }
