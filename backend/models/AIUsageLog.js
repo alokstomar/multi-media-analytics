@@ -45,6 +45,15 @@ const aiUsageLogSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Workspace'
   },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
+  },
+  provider: {
+    type: String,
+    index: true
+  },
   params: {
     type: mongoose.Schema.Types.Mixed
   }
@@ -52,5 +61,8 @@ const aiUsageLogSchema = new mongoose.Schema({
 
 aiUsageLogSchema.index({ workspaceId: 1 })
 aiUsageLogSchema.index({ createdAt: -1 })
+aiUsageLogSchema.index({ userId: 1, createdAt: -1 })
+aiUsageLogSchema.index({ userId: 1, provider: 1, createdAt: -1 })
+aiUsageLogSchema.index({ userId: 1, method: 1, createdAt: -1 })
 
 export default mongoose.model('AIUsageLog', aiUsageLogSchema)

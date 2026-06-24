@@ -3,6 +3,9 @@ import OpenAI from 'openai'
 import { AIProviderInterface } from './providerInterface.js'
 import AIResponseCache from '../../models/AIResponseCache.js'
 import AIUsageLog from '../../models/AIUsageLog.js'
+import { aiLocalStorage } from '../../utils/aiContext.js'
+import { calculateCost } from '../../utils/aiPricing.js'
+import { checkUserBudget, incrementUserUsage } from '../../utils/aiUsage.js'
 import {
   buildPortfolioContext,
   getPortfolioSummaryFallback,
@@ -57,19 +60,6 @@ const PREMIUM_METHODS = new Set([
   'getCrossPromotion',
   'getPortfolioSummary',
 ])
-
-// ── Cost per 1M tokens (USD) for estimating spend ───────────────────────
-const MODEL_PRICING = {
-  'gpt-4o-mini':  { input: 0.15,  output: 0.60 },
-  'gpt-4o':       { input: 2.50,  output: 10.00 },
-  'gpt-4-turbo':  { input: 10.00, output: 30.00 },
-  'gpt-3.5-turbo':{ input: 0.50,  output: 1.50 }
-}
-
-function estimateCost(model, promptTokens, completionTokens) {
-  const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-4o-mini']
-  return (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000
-}
 
 function makeCacheKey(method, params) {
   const raw = method + '::' + JSON.stringify(params)
@@ -316,7 +306,12 @@ export class OpenAIProvider extends AIProviderInterface {
     return PREMIUM_METHODS.has(method) ? this.premiumModel : this.fastModel
   }
 
-  async _checkBudget() {
+  async _checkBudget(userId) {
+    if (userId) {
+      await checkUserBudget(userId)
+      return
+    }
+
     const now = new Date()
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -346,11 +341,15 @@ export class OpenAIProvider extends AIProviderInterface {
   async _execute(method, params, systemPrompt, userPrompt, options = {}) {
     if (!this.apiKey) throw new Error(`${this.providerLabel} API Key not configured`)
 
+    const store = aiLocalStorage.getStore()
+    const userId = store?.userId
     const cacheKey = makeCacheKey(method, params)
 
     // 1. Check cache
     try {
-      const cached = await AIResponseCache.findOne({ cacheKey })
+      const cached = userId
+        ? await AIResponseCache.findOne({ cacheKey, userId })
+        : await AIResponseCache.findOne({ cacheKey })
       if (cached) {
         // Log cache hit
         AIUsageLog.create({
@@ -363,8 +362,15 @@ export class OpenAIProvider extends AIProviderInterface {
           responseTimeMs: 0,
           success: true,
           cacheHit: true,
+          userId,
+          provider: this.providerKey,
           params
         }).catch(() => {})  // fire-and-forget
+
+        if (userId) {
+          await incrementUserUsage(userId, { spend: 0, tokens: 0, cacheHit: true })
+        }
+
         console.log(`[AI Cache HIT] ${method} — returning cached response`)
         return cached.response
       }
@@ -373,7 +379,7 @@ export class OpenAIProvider extends AIProviderInterface {
     }
 
     // 2. Check budget
-    await this._checkBudget()
+    await this._checkBudget(userId)
 
     // 3. Call OpenAI
     const model = options.model || this._getModel(method)
@@ -414,10 +420,18 @@ export class OpenAIProvider extends AIProviderInterface {
     const promptTokens = usage.prompt_tokens || 0
     const completionTokens = usage.completion_tokens || 0
     const totalTokens = usage.total_tokens || promptTokens + completionTokens
-    const cost = estimateCost(model, promptTokens, completionTokens)
+    const cost = calculateCost({ provider: 'openai', model, promptTokens, completionTokens })
 
-    // 4. Parse and validate JSON
-    const parsed = parseJSON(rawContent)
+    let parsed = parseJSON(rawContent)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (method === 'generateContentIdeas' && Array.isArray(parsed.ideas)) {
+        parsed = parsed.ideas
+      } else if (method === 'findTrendingTopics' && Array.isArray(parsed.topics)) {
+        parsed = parsed.topics
+      } else if (method === 'discoverIndustryTrends' && Array.isArray(parsed.trends)) {
+        parsed = parsed.trends
+      }
+    }
     const validator = VALIDATORS[method]
 
     if (!parsed || (validator && !validator(parsed))) {
@@ -427,7 +441,9 @@ export class OpenAIProvider extends AIProviderInterface {
         estimatedCost: cost, responseTimeMs,
         success: false,
         error: `Invalid JSON structure from ${this.providerLabel}`,
-        cacheHit: false, params
+        cacheHit: false, params,
+        userId,
+        provider: this.providerKey
       }).catch(() => {})
       throw new Error(`${this.providerLabel} returned invalid JSON structure for ${method}`)
     }
@@ -437,11 +453,12 @@ export class OpenAIProvider extends AIProviderInterface {
     const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000)
     try {
       await AIResponseCache.findOneAndUpdate(
-        { cacheKey },
+        userId ? { cacheKey, userId } : { cacheKey },
         {
           cacheKey, method, params,
           response: parsed,
           provider: this.providerKey,
+          userId,
           usage: { promptTokens, completionTokens, totalTokens, model, estimatedCost: cost },
           responseTimeMs,
           expiresAt
@@ -456,8 +473,14 @@ export class OpenAIProvider extends AIProviderInterface {
     AIUsageLog.create({
       method, model, promptTokens, completionTokens, totalTokens,
       estimatedCost: cost, responseTimeMs,
-      success: true, cacheHit: false, params
+      success: true, cacheHit: false, params,
+      userId,
+      provider: this.providerKey
     }).catch(() => {})
+
+    if (userId) {
+      await incrementUserUsage(userId, { spend: cost, tokens: totalTokens, cacheHit: false })
+    }
 
     console.log(`${this.logPrefix} ${method} — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
     return parsed
@@ -524,11 +547,13 @@ Be honest and critical. Provide actionable suggestions.`
 
   async generateContentIdeas(category) {
     const systemPrompt = `You are a content strategy researcher. Generate trending content ideas for the given category.
-Return ONLY valid JSON as an array with this structure:
-[
-  {"id": "1", "title": "content idea title", "impact": "High|Medium|Viral"},
-  {"id": "2", "title": "another idea", "impact": "High|Medium|Viral"}
-]
+Return ONLY valid JSON with this structure:
+{
+  "ideas": [
+    {"id": "1", "title": "content idea title", "impact": "High|Medium|Viral"},
+    {"id": "2", "title": "another idea", "impact": "High|Medium|Viral"}
+  ]
+}
 Generate 5-8 unique, timely ideas.`
 
     const userPrompt = `Generate trending content ideas for the category: "${category}"
@@ -539,10 +564,12 @@ Focus on current trends in 2026. Make them specific and actionable.`
 
   async findTrendingTopics(category) {
     const systemPrompt = `You are a trend analyst. Identify currently trending topics in the given category.
-Return ONLY valid JSON as an array with this structure:
-[
-  {"topic": "topic name", "trendScore": <number 70-100>, "growth": <number like 84.5>, "competition": "Low|Medium|High", "opportunityScore": <number 70-100>}
-]
+Return ONLY valid JSON with this structure:
+{
+  "topics": [
+    {"topic": "topic name", "trendScore": <number 70-100>, "growth": <number like 84.5>, "competition": "Low|Medium|High", "opportunityScore": <number 70-100>}
+  ]
+}
 Generate 4-6 trending topics with realistic metrics.`
 
     const userPrompt = `What are the trending topics in: "${category}"?
@@ -617,10 +644,12 @@ Be analytical and provide actionable feedback.`
 
   async discoverIndustryTrends(category) {
     const systemPrompt = `You are a B2B industry trend analyst. Identify emerging trends and suggest content angles.
-Return ONLY valid JSON as an array with this structure:
-[
-  {"trendName": "trend name", "growth": <number like 84.5>, "opportunityScore": <number 70-100>, "suggestedAngle": "content angle suggestion"}
-]
+Return ONLY valid JSON with this structure:
+{
+  "trends": [
+    {"trendName": "trend name", "growth": <number like 84.5>, "opportunityScore": <number 70-100>, "suggestedAngle": "content angle suggestion"}
+  ]
+}
 Generate 3-5 trends with realistic growth metrics.`
 
     const userPrompt = `What are the emerging B2B industry trends in: "${category}"?
@@ -683,21 +712,31 @@ Variants must each be under 70 characters and CTR-optimized.`
     const imageDataUrl = payload.imageBase64 || payload.imageDataUrl
     if (!imageDataUrl) throw new Error('analyzeThumbnail requires imageBase64')
 
+    const store = aiLocalStorage.getStore()
+    const userId = store?.userId
+
     // Hash the image so cache keys stay small.
     const imageHash = createHash('sha256').update(imageDataUrl).digest('hex').substring(0, 32)
     const cacheKey = makeCacheKey('analyzeThumbnail', { imageHash })
 
     // Cache check
     try {
-      const cached = await AIResponseCache.findOne({ cacheKey })
+      const cached = userId
+        ? await AIResponseCache.findOne({ cacheKey, userId })
+        : await AIResponseCache.findOne({ cacheKey })
       if (cached) {
         AIUsageLog.create({
           method: 'analyzeThumbnail',
           model: cached.usage?.model || this.premiumModel,
           promptTokens: 0, completionTokens: 0, totalTokens: 0,
           estimatedCost: 0, responseTimeMs: 0,
-          success: true, cacheHit: true, params: { imageHash }
+          success: true, cacheHit: true, userId, provider: this.providerKey, params: { imageHash }
         }).catch(() => {})
+
+        if (userId) {
+          await incrementUserUsage(userId, { spend: 0, tokens: 0, cacheHit: true })
+        }
+
         console.log('[AI Cache HIT] analyzeThumbnail — returning cached response')
         return cached.response
       }
@@ -705,7 +744,7 @@ Variants must each be under 70 characters and CTR-optimized.`
       console.warn('[AI Cache] Read error:', cacheErr.message)
     }
 
-    await this._checkBudget()
+    await this._checkBudget(userId)
 
     const model = this.premiumModel // gpt-4o supports vision
     const startTime = Date.now()
@@ -743,7 +782,7 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
     const promptTokens = usage.prompt_tokens || 0
     const completionTokens = usage.completion_tokens || 0
     const totalTokens = usage.total_tokens || promptTokens + completionTokens
-    const cost = estimateCost(model, promptTokens, completionTokens)
+    const cost = calculateCost({ provider: 'openai', model, promptTokens, completionTokens })
 
     const parsed = parseJSON(rawContent)
     if (!parsed || !VALIDATORS.analyzeThumbnail(parsed)) {
@@ -751,7 +790,7 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
         method: 'analyzeThumbnail', model, promptTokens, completionTokens, totalTokens,
         estimatedCost: cost, responseTimeMs,
         success: false, error: `Invalid JSON structure from ${this.providerLabel}`,
-        cacheHit: false, params: { imageHash }
+        cacheHit: false, userId, provider: this.providerKey, params: { imageHash }
       }).catch(() => {})
       throw new Error(`${this.providerLabel} returned invalid JSON structure for analyzeThumbnail`)
     }
@@ -760,10 +799,11 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
     const expiresAt = new Date(Date.now() + (CACHE_TTL.analyzeThumbnail || 48) * 60 * 60 * 1000)
     try {
       await AIResponseCache.findOneAndUpdate(
-        { cacheKey },
+        userId ? { cacheKey, userId } : { cacheKey },
         {
           cacheKey, method: 'analyzeThumbnail', params: { imageHash },
           response: parsed, provider: this.providerKey,
+          userId,
           usage: { promptTokens, completionTokens, totalTokens, model, estimatedCost: cost },
           responseTimeMs, expiresAt
         },
@@ -776,8 +816,12 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
     AIUsageLog.create({
       method: 'analyzeThumbnail', model, promptTokens, completionTokens, totalTokens,
       estimatedCost: cost, responseTimeMs,
-      success: true, cacheHit: false, params: { imageHash }
+      success: true, cacheHit: false, userId, provider: this.providerKey, params: { imageHash }
     }).catch(() => {})
+
+    if (userId) {
+      await incrementUserUsage(userId, { spend: cost, tokens: totalTokens, cacheHit: false })
+    }
 
     console.log(`${this.logPrefix} analyzeThumbnail — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
     return parsed

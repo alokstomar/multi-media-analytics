@@ -926,7 +926,7 @@ export async function getAIUsageStats(req, res, next) {
       .lean()
 
     // Cache stats
-    const cacheCount = await AIResponseCache.countDocuments()
+    const cacheCount = await AIResponseCache.countDocuments({ userId: req.user._id })
 
     // Budget configuration
     const dailyBudget = parseFloat(process.env.OPENAI_DAILY_BUDGET_USD) || 0

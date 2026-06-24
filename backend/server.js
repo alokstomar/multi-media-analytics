@@ -22,6 +22,7 @@ import workspaceRoutes from './routes/workspaceRoutes.js'
 import settingsRoutes from './routes/settingsRoutes.js'
 import { initScheduler } from './jobs/scheduler.js'
 import { requireAuth, requireWorkspace } from './middlewares/authMiddleware.js'
+import { attachAIContext } from './middlewares/aiContextMiddleware.js'
 
 const app = express()
 
@@ -68,9 +69,10 @@ app.use('/api', verifyDbConnected)
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/workspaces', workspaceRoutes)
-app.use('/api/settings', requireAuth, settingsRoutes) // user-level profile (no workspace scope)
+app.use('/api/settings', requireAuth, attachAIContext, settingsRoutes) // user-level profile (no workspace scope)
 
 const protect = [requireAuth, requireWorkspace]
+const aiProtect = [requireAuth, requireWorkspace, attachAIContext]
 
 app.use('/api/channels', protect, channelRoutes)
 app.use('/api/channels', protect, videoRoutes)
@@ -78,9 +80,9 @@ app.use('/api/analytics', protect, analyticsRoutes)
 app.use('/api/dashboard', protect, dashboardRoutes)
 app.use('/api/compare', protect, comparisonRoutes)
 app.use('/api/comments', protect, commentRoutes)
-app.use('/api/intelligence', protect, intelligenceRoutes)
-app.use('/api/portfolio/intelligence', protect, portfolioRoutes)
-app.use('/api/studio', protect, studioRoutes)
+app.use('/api/intelligence', aiProtect, intelligenceRoutes)
+app.use('/api/portfolio/intelligence', aiProtect, portfolioRoutes)
+app.use('/api/studio', aiProtect, studioRoutes)
 app.use('/api/instagram', instagramRoutes) // Managed internally (contains public callback)
 app.use('/api/scheduler', protect, schedulerRoutes)
 app.use('/api/twitter', twitterOAuthRoutes) // Managed internally (contains public callback)

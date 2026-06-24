@@ -188,6 +188,18 @@ export const revokeAllOtherSessionsApi = () =>
 export const updatePasswordApi = (payload) =>
   api.post('/api/settings/password', payload).then((r) => r.data)
 
+export const getIntegrations = () =>
+  api.get('/api/settings/integrations').then((r) => r.data)
+
+export const updateIntegration = (platform, payload) =>
+  api.patch(`/api/settings/integrations/${platform}`, payload).then((r) => r.data)
+
+export const getApiKey = () =>
+  api.get('/api/settings/api-key').then((r) => r.data)
+
+export const regenerateApiKey = () =>
+  api.post('/api/settings/api-key/regenerate').then((r) => r.data)
+
 // ── Dashboard (all-in-one) ───────────────────────────────────────────
 export const getDashboard = (id) =>
   api.get(`/api/dashboard/${id}`).then((r) => r.data)
@@ -485,7 +497,13 @@ export const triggerInstagramAIRecommendations = (username) =>
   api.post(`/api/instagram/recommendations/${username}`).then((r) => r.data)
 
 export const getAIUsageStats = () =>
-  api.get('/api/studio/ai/usage-stats').then((r) => r.data)
+  api.get('/api/settings/ai-usage').then((r) => r.data)
+
+export const updateAIBudgets = (payload) =>
+  api.patch('/api/settings/ai-usage/budgets', payload).then((r) => r.data)
+
+export const getAIUsageHistory = () =>
+  api.get('/api/settings/ai-usage/history').then((r) => r.data)
 
 export const getQueueMetrics = () =>
   api.get('/api/studio/queue/metrics').then((r) => r.data)

@@ -1,6 +1,7 @@
 import Channel from '../models/Channel.js'
 import Video from '../models/Video.js'
 import Comment from '../models/Comment.js'
+import User from '../models/User.js'
 import { resolveChannelId, fetchChannelDetails, fetchChannelVideos } from '../services/youtubeService.js'
 import { AppError } from '../utils/errorHandler.js'
 
@@ -45,6 +46,8 @@ export async function addChannel(req, res, next) {
     if (wasUpdated) {
       console.log(`[Channel Connect] Reused existing channel document: ${channel.channelId} (currently associated with workspace: ${channel.workspaceId})`)
 
+      await syncUserYoutubeIntegration(req.user._id, req.workspaceId)
+
       return res.status(200).json({
         success: true,
         message: 'Channel already connected.',
@@ -66,6 +69,9 @@ export async function addChannel(req, res, next) {
       }))
       await Video.bulkWrite(bulkOps)
     }
+
+    await syncUserYoutubeIntegration(req.user._id, req.workspaceId)
+
     res.status(201).json({
       success: true,
       message: 'Channel connected successfully.',
@@ -132,8 +138,37 @@ export async function deleteChannel(req, res, next) {
     if (!channel) throw new AppError('Channel not found', 404)
     await Video.deleteMany({ channelId: req.params.id })
     await Comment.deleteMany({ channelId: req.params.id })
+
+    await syncUserYoutubeIntegration(req.user._id, req.workspaceId)
+
     res.json({ success: true, message: 'Channel deleted' })
   } catch (err) {
     next(err)
+  }
+}
+
+// Helper to sync YouTube integration state
+export async function syncUserYoutubeIntegration(userId, workspaceId) {
+  try {
+    const channelCount = await Channel.countDocuments({ workspaceId })
+    const user = await User.findById(userId)
+    if (!user) return
+
+    const existingYoutube = user.integrations?.youtube || {}
+    const connected = channelCount > 0
+    const connectedAt = existingYoutube.connectedAt || (connected ? new Date() : null)
+
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        'integrations.youtube.connected': connected,
+        'integrations.youtube.channelCount': channelCount,
+        'integrations.youtube.status': connected ? 'connected' : 'disconnected',
+        'integrations.youtube.lastSyncAt': new Date(),
+        'integrations.youtube.connectedAt': connectedAt,
+        'integrations.youtube.updatedAt': new Date()
+      }
+    })
+  } catch (err) {
+    console.error('Failed to sync YouTube integration state:', err)
   }
 }

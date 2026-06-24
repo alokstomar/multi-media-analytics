@@ -1,5 +1,10 @@
 import { AIProviderInterface } from './providerInterface.js'
 import { createHash } from 'crypto'
+import AIResponseCache from '../../models/AIResponseCache.js'
+import AIUsageLog from '../../models/AIUsageLog.js'
+import { aiLocalStorage } from '../../utils/aiContext.js'
+import { calculateCost } from '../../utils/aiPricing.js'
+import { checkUserBudget, incrementUserUsage } from '../../utils/aiUsage.js'
 
 // ── Deterministic pseudo-randomness from a string seed ─────────────────
 // Lets stub data vary by channel/content (so two channels don't show the
@@ -17,7 +22,138 @@ function fmtViews(n) {
   return String(n)
 }
 
+function makeCacheKey(method, params) {
+  const raw = method + '::' + JSON.stringify(params)
+  return createHash('sha256').update(raw).digest('hex')
+}
+
 export class StubAIProvider extends AIProviderInterface {
+  constructor() {
+    super()
+    this.providerKey = 'stub'
+    this.providerLabel = 'Stub'
+
+    // Dynamically wrap all methods to apply user metrics, check budget, and cache
+    const methodsToWrap = Object.getOwnPropertyNames(StubAIProvider.prototype)
+      .filter(m => m !== 'constructor' && m !== 'healthCheck' && m !== '_wrapStub' && typeof this[m] === 'function')
+
+    for (const method of methodsToWrap) {
+      const original = this[method].bind(this)
+      this[method] = async (...args) => {
+        return this._wrapStub(method, original, args)
+      }
+    }
+  }
+
+  async _wrapStub(method, original, args) {
+    const store = aiLocalStorage?.getStore()
+    const userId = store?.userId
+
+    // Define mock params object for logging/caching
+    let params = {}
+    if (args.length === 1 && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+      params = args[0]
+    } else {
+      args.forEach((val, idx) => {
+        params[`arg${idx}`] = val
+      })
+    }
+
+    const cacheKey = makeCacheKey(method, params)
+
+    // 1. Check cache
+    try {
+      const cached = userId
+        ? await AIResponseCache.findOne({ cacheKey, userId })
+        : await AIResponseCache.findOne({ cacheKey })
+      
+      if (cached) {
+        AIUsageLog.create({
+          method,
+          model: 'stub-model',
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          estimatedCost: 0,
+          responseTimeMs: 0,
+          success: true,
+          cacheHit: true,
+          userId,
+          provider: 'stub',
+          params
+        }).catch(() => {})
+
+        if (userId) {
+          await incrementUserUsage(userId, { spend: 0, tokens: 0, cacheHit: true })
+        }
+
+        console.log(`[AI Stub Cache HIT] ${method} — returning cached response`)
+        return cached.response
+      }
+    } catch (cacheErr) {
+      console.warn('[AI Cache] Read error:', cacheErr.message)
+    }
+
+    // 2. Check budget
+    if (userId) {
+      await checkUserBudget(userId)
+    }
+
+    // 3. Call original stub method
+    const startTime = Date.now()
+    const response = await original(...args)
+    const responseTimeMs = Date.now() - startTime
+
+    // 4. Calculate mock tokens & cost
+    const promptTokens = Math.ceil(JSON.stringify(params).length / 4) + 100
+    const completionTokens = Math.ceil(JSON.stringify(response).length / 4) + 150
+    const totalTokens = promptTokens + completionTokens
+    const cost = calculateCost({ provider: 'stub', model: 'stub-model', promptTokens, completionTokens })
+
+    // 5. Cache response
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    try {
+      await AIResponseCache.findOneAndUpdate(
+        userId ? { cacheKey, userId } : { cacheKey },
+        {
+          cacheKey, method, params,
+          response,
+          provider: 'stub',
+          userId,
+          usage: { promptTokens, completionTokens, totalTokens, model: 'stub-model', estimatedCost: cost },
+          responseTimeMs,
+          expiresAt
+        },
+        { upsert: true, new: true }
+      )
+    } catch (cacheErr) {
+      console.warn('[AI Cache] Write error:', cacheErr.message)
+    }
+
+    // 6. Log usage
+    AIUsageLog.create({
+      method,
+      model: 'stub-model',
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      estimatedCost: cost,
+      responseTimeMs,
+      success: true,
+      cacheHit: false,
+      params,
+      userId,
+      provider: 'stub'
+    }).catch(() => {})
+
+    if (userId) {
+      await incrementUserUsage(userId, { spend: cost, tokens: totalTokens, cacheHit: false })
+    }
+
+    console.log(`[AI Stub] ${method} — stub-model — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
+    return response
+  }
+
   async healthCheck() {
     return {
       provider: 'stub',

@@ -10,9 +10,12 @@ import {
 import {
   getAIUsageStats, getQueueMetrics, getProfile, updateProfile as apiUpdateProfile,
   uploadAvatar, removeAvatarApi, getSessions, revokeSessionApi,
-  revokeAllOtherSessionsApi, updatePasswordApi
+  revokeAllOtherSessionsApi, updatePasswordApi,
+  getChannels, getIntegrations, updateIntegration, getApiKey, regenerateApiKey,
+  updateAIBudgets
 } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { useNavigate } from 'react-router-dom'
 
 const cs = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)'
 
@@ -257,6 +260,7 @@ const formatRelativeTime = (dateInput) => {
 export default function Settings() {
   const saved = loadSettings()
   const { user, updateUser } = useAuth()
+  const navigate = useNavigate()
 
   const [activeTab, setActiveTab] = useState('profile')
   const [toast, setToast] = useState(null)
@@ -281,12 +285,17 @@ export default function Settings() {
   const [appearance, setAppearance] = useState(saved?.appearance || { ...defaultAppearance })
 
   // Integrations state
-  const [integrations, setIntegrations] = useState(saved?.integrations || { ...defaultIntegrations })
+  const [integrations, setIntegrations] = useState({})
+  const [integrationsLoading, setIntegrationsLoading] = useState(true)
+  const [connectedChannels, setConnectedChannels] = useState([])
 
-  // API Key
-  const [apiKey, setApiKey] = useState(saved?.apiKey || 'ca_live_sk_a8f2e1b4c9d3f7a2e6b8c4d1f9a3e7b2')
+  // API Key state
+  const [apiKeyMetadata, setApiKeyMetadata] = useState(null)
+  const [apiKeyLoading, setApiKeyLoading] = useState(true)
   const [apiKeyCopied, setApiKeyCopied] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
+
+  // Newly regenerated raw key (stored once for copy-modal)
+  const [newRegeneratedKey, setNewRegeneratedKey] = useState(null)
 
   // AI Usage & Scheduler Metrics state
   const [aiUsageStats, setAiUsageStats] = useState(null)
@@ -294,12 +303,21 @@ export default function Settings() {
   const [loadingUsage, setLoadingUsage] = useState(false)
   const [loadingQueue, setLoadingQueue] = useState(false)
 
+  // Budget limits editing state
+  const [editDailyBudget, setEditDailyBudget] = useState('')
+  const [editMonthlyBudget, setEditMonthlyBudget] = useState('')
+  const [savingBudgets, setSavingBudgets] = useState(false)
+
   const fetchAIUsage = async () => {
     setLoadingUsage(true)
     try {
       const res = await getAIUsageStats()
       if (res?.success) {
-        setAiUsageStats(res.data)
+        setAiUsageStats(res)
+        if (res.usage) {
+          setEditDailyBudget(res.usage.daily.budget)
+          setEditMonthlyBudget(res.usage.monthly.budget)
+        }
       }
     } catch (err) {
       console.error('Failed to fetch AI Usage stats:', err)
@@ -337,6 +355,62 @@ export default function Settings() {
     }
   }
 
+  const fetchIntegrations = async () => {
+    setIntegrationsLoading(true)
+    try {
+      const [intRes, chanRes] = await Promise.all([
+        getIntegrations(),
+        getChannels()
+      ])
+      if (intRes?.success) {
+        setIntegrations(intRes.data || {})
+      }
+      if (chanRes?.success) {
+        setConnectedChannels(chanRes.data || [])
+      }
+    } catch (err) {
+      console.error('Failed to load integrations:', err)
+      showToast('Failed to load integrations', 'error')
+    } finally {
+      setIntegrationsLoading(false)
+    }
+  }
+
+  const fetchApiKeyMetadata = async () => {
+    setApiKeyLoading(true)
+    try {
+      const res = await getApiKey()
+      if (res?.success) {
+        setApiKeyMetadata(res)
+      }
+    } catch (err) {
+      console.error('Failed to load API key:', err)
+      showToast('Failed to load API key', 'error')
+    } finally {
+      setApiKeyLoading(false)
+    }
+  }
+
+  const handleSaveBudgets = async () => {
+    setSavingBudgets(true)
+    try {
+      const res = await updateAIBudgets({
+        dailyBudget: parseFloat(editDailyBudget),
+        monthlyBudget: parseFloat(editMonthlyBudget)
+      })
+      if (res?.success) {
+        showToast('Budget limits updated successfully')
+        fetchAIUsage()
+      } else {
+        showToast('Failed to update budget limits', 'error')
+      }
+    } catch (err) {
+      showToast(err?.response?.data?.error || 'Failed to update budgets', 'error')
+    } finally {
+      setSavingBudgets(false)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'ai_usage') {
       fetchAIUsage()
@@ -344,8 +418,21 @@ export default function Settings() {
       fetchQueueStats()
     } else if (activeTab === 'security') {
       fetchSessions()
+    } else if (activeTab === 'integrations') {
+      fetchIntegrations()
+      fetchApiKeyMetadata()
     }
   }, [activeTab])
+
+  // 60-second auto-close timeout for newly regenerated key
+  useEffect(() => {
+    if (newRegeneratedKey) {
+      const timer = setTimeout(() => {
+        setNewRegeneratedKey(null)
+      }, 60000)
+      return () => clearTimeout(timer)
+    }
+  }, [newRegeneratedKey])
 
   // File input ref
   const fileInputRef = useRef(null)
@@ -393,8 +480,8 @@ export default function Settings() {
 
   // Persist non-profile prefs to localStorage (theme, notifs, etc.)
   useEffect(() => {
-    saveSettings({ notifs, twoFA, appearance, integrations, apiKey })
-  }, [notifs, twoFA, appearance, integrations, apiKey])
+    saveSettings({ notifs, twoFA, appearance, integrations })
+  }, [notifs, twoFA, appearance, integrations])
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
@@ -621,30 +708,64 @@ export default function Settings() {
   }
 
   // ── Integration handlers ──────────────────
-  const toggleIntegration = (key) => {
-    const isConnected = integrations[key]
+  const toggleIntegration = async (key) => {
+    const isConnected = !!integrations[key]?.connected
+    const previous = { ...integrations }
+
     if (isConnected) {
       setModal({
         title: 'Disconnect Integration',
         desc: `Are you sure you want to disconnect this platform?`,
         confirmLabel: 'Disconnect',
         danger: true,
-        onConfirm: () => {
-          setIntegrations(prev => ({ ...prev, [key]: false }))
+        onConfirm: async () => {
           setModal(null)
+          // Optimistically update
+          setIntegrations(prev => ({
+            ...prev,
+            [key]: { ...prev[key], connected: false, status: 'disconnected' }
+          }))
           showToast('Integration disconnected')
+
+          try {
+            const res = await updateIntegration(key, { connected: false })
+            if (!res?.success) {
+              setIntegrations(previous)
+              showToast('Failed to disconnect integration', 'error')
+            }
+          } catch (err) {
+            setIntegrations(previous)
+            showToast('Failed to disconnect integration', 'error')
+          }
         },
       })
     } else {
-      setIntegrations(prev => ({ ...prev, [key]: true }))
+      // Optimistically update
+      setIntegrations(prev => ({
+        ...prev,
+        [key]: { ...prev[key], connected: true, status: 'connected' }
+      }))
       showToast('Integration connected!')
+
+      try {
+        const res = await updateIntegration(key, { connected: true })
+        if (!res?.success) {
+          setIntegrations(previous)
+          showToast('Failed to connect integration', 'error')
+        }
+      } catch (err) {
+        setIntegrations(previous)
+        showToast('Failed to connect integration', 'error')
+      }
     }
   }
 
   // ── API Key handlers ──────────────────────
-  const copyApiKey = async () => {
+  const copyApiKey = async (customText = null) => {
     try {
-      await navigator.clipboard.writeText(apiKey)
+      const textToCopy = customText || apiKeyMetadata?.preview || ''
+      if (!textToCopy) return
+      await navigator.clipboard.writeText(textToCopy)
       setApiKeyCopied(true)
       showToast('API key copied to clipboard!')
       setTimeout(() => setApiKeyCopied(false), 2000)
@@ -653,18 +774,35 @@ export default function Settings() {
     }
   }
 
-  const regenerateApiKey = () => {
+  const handleRegenerateApiKey = () => {
     setModal({
       title: 'Regenerate API Key',
       desc: 'Your current key will stop working immediately. Any apps using this key will lose access.',
       confirmLabel: 'Regenerate',
       danger: true,
-      onConfirm: () => {
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-        const newKey = 'ca_live_sk_' + Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-        setApiKey(newKey)
+      onConfirm: async () => {
         setModal(null)
-        showToast('API key regenerated!')
+        setApiKeyLoading(true)
+        try {
+          const res = await regenerateApiKey()
+          if (res?.success && res.rawKey) {
+            setApiKeyMetadata({
+              preview: res.keyPreview,
+              createdAt: res.createdAt,
+              lastUsedAt: null,
+              exists: true
+            })
+            setNewRegeneratedKey(res.rawKey)
+            await navigator.clipboard.writeText(res.rawKey)
+            showToast('API key regenerated and copied!')
+          } else {
+            showToast('Failed to regenerate API key', 'error')
+          }
+        } catch (err) {
+          showToast('Failed to regenerate API key', 'error')
+        } finally {
+          setApiKeyLoading(false)
+        }
       },
     })
   }
@@ -712,12 +850,61 @@ export default function Settings() {
 
   // ── Integration config ────────────────────
   const integrationsList = [
-    { key: 'youtube', name: 'YouTube', desc: integrations.youtube ? '4 channels connected' : 'Connect your YouTube channels', color: '#EF4444', icon: '▶' },
-    { key: 'googleAnalytics', name: 'Google Analytics', desc: integrations.googleAnalytics ? 'Tracking website traffic from videos' : 'Track website traffic from videos', color: '#F59E0B', icon: '📊' },
-    { key: 'instagram', name: 'Instagram', desc: integrations.instagram ? 'Connected — syncing audience data' : 'Cross-platform audience insights', color: '#E1306C', icon: '📷' },
-    { key: 'twitter', name: 'Twitter / X', desc: integrations.twitter ? 'Monitoring social mentions' : 'Monitor social mentions', color: '#1DA1F2', icon: '𝕏' },
-    { key: 'discord', name: 'Discord', desc: integrations.discord ? 'Tracking community engagement' : 'Community engagement tracking', color: '#5865F2', icon: '💬' },
-    { key: 'slack', name: 'Slack', desc: integrations.slack ? 'Sending alerts to workspace' : 'Alert notifications to workspace', color: '#4A154B', icon: '#' },
+    {
+      key: 'youtube',
+      name: 'YouTube',
+      desc: integrations.youtube?.connected
+        ? `${connectedChannels.length} ${connectedChannels.length === 1 ? 'channel' : 'channels'} connected`
+        : 'Connect your YouTube channels',
+      lastSynced: integrations.youtube?.lastSyncAt,
+      color: '#EF4444',
+      icon: '▶'
+    },
+    {
+      key: 'googleAnalytics',
+      name: 'Google Analytics',
+      desc: integrations.googleAnalytics?.connected
+        ? 'Tracking website traffic from videos'
+        : 'Track website traffic from videos',
+      color: '#F59E0B',
+      icon: '📊'
+    },
+    {
+      key: 'instagram',
+      name: 'Instagram',
+      desc: integrations.instagram?.connected
+        ? 'Connected — syncing audience data'
+        : 'Cross-platform audience insights',
+      color: '#E1306C',
+      icon: '📷'
+    },
+    {
+      key: 'twitter',
+      name: 'Twitter / X',
+      desc: integrations.twitter?.connected
+        ? 'Monitoring social mentions'
+        : 'Monitor social mentions',
+      color: '#1DA1F2',
+      icon: '𝕏'
+    },
+    {
+      key: 'discord',
+      name: 'Discord',
+      desc: integrations.discord?.connected
+        ? 'Tracking community engagement'
+        : 'Community engagement tracking',
+      color: '#5865F2',
+      icon: '💬'
+    },
+    {
+      key: 'slack',
+      name: 'Slack',
+      desc: integrations.slack?.connected
+        ? 'Sending alerts to workspace'
+        : 'Alert notifications to workspace',
+      color: '#4A154B',
+      icon: '#'
+    },
   ]
 
   return (
@@ -1024,46 +1211,88 @@ export default function Settings() {
               <>
                 <Section title="Connected Platforms" desc="Manage your connected social accounts.">
                   <div className="space-y-3">
-                    {integrationsList.map((p) => (
-                      <div key={p.key} className="flex items-center justify-between rounded-xl border border-gray-100 p-4 hover:bg-gray-50/50 transition">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl text-white text-sm font-bold" style={{ backgroundColor: p.color }}>{p.icon}</div>
-                          <div>
-                            <p className="text-[13px] font-semibold text-gray-800">{p.name}</p>
-                            <p className="text-[11px] text-gray-400">{p.desc}</p>
+                    {integrationsLoading ? (
+                      <IntegrationSkeleton />
+                    ) : (
+                      <>
+                        {/* Empty state logic */}
+                        {Object.values(integrations).every((i) => !i?.connected) && (
+                          <div className="text-center py-10 bg-gray-50 border border-dashed border-gray-200 rounded-2xl p-6">
+                            <Link2 className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+                            <p className="text-sm font-semibold text-gray-700">No integrations connected yet.</p>
+                            <p className="text-[12px] text-gray-400 mt-1">Connect your favorite platforms to unlock deeper analytics.</p>
                           </div>
-                        </div>
-                        {integrations[p.key] ? (
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full"><Check className="h-3 w-3" />Connected</span>
-                            <button onClick={() => toggleIntegration(p.key)} className="text-[12px] text-gray-400 hover:text-red-500 transition cursor-pointer">Disconnect</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => toggleIntegration(p.key)} className="rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 px-4 py-2 hover:bg-gray-50 transition flex items-center gap-1.5 cursor-pointer">Connect<ExternalLink className="h-3 w-3" /></button>
                         )}
-                      </div>
-                    ))}
+
+                        {integrationsList.map((p) => {
+                          const isConnected = !!integrations[p.key]?.connected
+                          return (
+                            <div key={p.key} className="flex items-center justify-between rounded-xl border border-gray-100 p-4 hover:bg-gray-50/50 transition">
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl text-white text-sm font-bold" style={{ backgroundColor: p.color }}>{p.icon}</div>
+                                <div>
+                                  <p className="text-[13px] font-semibold text-gray-800">{p.name}</p>
+                                  <p className="text-[11px] text-gray-400">{p.desc}</p>
+                                  {p.key === 'youtube' && isConnected && p.lastSynced && (
+                                    <p className="text-[10px] text-gray-300 mt-0.5">Last synced: {formatRelativeTime(p.lastSynced)}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                {isConnected && p.key !== 'youtube' && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full"><Check className="h-3 w-3" />Connected</span>
+                                )}
+                                {p.key === 'youtube' ? (
+                                  <button
+                                    onClick={() => navigate('/channels')}
+                                    className="rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 px-4 py-2 hover:bg-gray-50 transition flex items-center gap-1.5 cursor-pointer font-semibold"
+                                  >
+                                    Manage Channels
+                                  </button>
+                                ) : isConnected ? (
+                                  <button onClick={() => toggleIntegration(p.key)} className="text-[12px] text-gray-400 hover:text-red-500 transition cursor-pointer font-semibold">Disconnect</button>
+                                ) : (
+                                  <button onClick={() => toggleIntegration(p.key)} className="rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 px-4 py-2 hover:bg-gray-50 transition flex items-center gap-1.5 cursor-pointer font-semibold">Connect<ExternalLink className="h-3 w-3" /></button>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </>
+                    )}
                   </div>
                 </Section>
 
                 <Section title="API Access" desc="Manage API keys for developer access." noBorder>
-                  <div className="rounded-xl border border-gray-100 p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <div><p className="text-[13px] font-semibold text-gray-800">API Key</p><p className="text-[11px] text-gray-400">Use this key to access our REST API</p></div>
-                      <button onClick={regenerateApiKey} className="rounded-xl bg-blue-600 text-white text-[12px] font-semibold px-4 py-2 hover:bg-blue-700 transition flex items-center gap-1.5 cursor-pointer"><RefreshCw className="h-3.5 w-3.5" />Regenerate</button>
+                  {apiKeyLoading ? (
+                    <div className="h-12 w-full bg-gray-50 animate-pulse rounded-xl" />
+                  ) : (
+                    <div className="rounded-xl border border-gray-100 p-5 space-y-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <div>
+                          <p className="text-[13px] font-semibold text-gray-800">API Key</p>
+                          <p className="text-[11px] text-gray-400">Use this key to access our REST API</p>
+                        </div>
+                        <button onClick={handleRegenerateApiKey} className="rounded-xl bg-blue-600 text-white text-[12px] font-semibold px-4 py-2 hover:bg-blue-700 transition flex items-center gap-1.5 cursor-pointer"><RefreshCw className="h-3.5 w-3.5" />Regenerate</button>
+                      </div>
+
+                      <div className="flex items-center gap-2 rounded-xl bg-gray-50 p-3">
+                        <code className="text-[12px] text-gray-600 font-mono flex-1 select-all">
+                          {apiKeyMetadata?.preview || 'No active key'}
+                        </code>
+                        <button onClick={() => copyApiKey()} className="text-[12px] font-medium text-blue-600 hover:text-blue-700 transition flex items-center gap-1 cursor-pointer">
+                          {apiKeyCopied ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="text-emerald-600 font-semibold">Copied!</span></> : <><Copy className="h-3.5 w-3.5" /><span className="font-semibold">Copy</span></>}
+                        </button>
+                      </div>
+
+                      {apiKeyMetadata && (
+                        <div className="flex gap-4 text-[11px] text-gray-400 pt-1">
+                          <p>Created {formatRelativeTime(apiKeyMetadata.createdAt)}</p>
+                          <p>Last used {apiKeyMetadata.lastUsedAt ? formatRelativeTime(apiKeyMetadata.lastUsedAt) : 'Never'}</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 rounded-xl bg-gray-50 p-3">
-                      <code className="text-[12px] text-gray-600 font-mono flex-1 select-all">
-                        {showApiKey ? apiKey : apiKey.slice(0, 14) + '•'.repeat(20)}
-                      </code>
-                      <button onClick={() => setShowApiKey(!showApiKey)} className="text-gray-400 hover:text-gray-600 transition cursor-pointer p-1">
-                        {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                      <button onClick={copyApiKey} className="text-[12px] font-medium text-blue-600 hover:text-blue-700 transition flex items-center gap-1 cursor-pointer">
-                        {apiKeyCopied ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span className="text-emerald-600">Copied!</span></> : <><Copy className="h-3.5 w-3.5" />Copy</>}
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </Section>
               </>
             )}
@@ -1090,9 +1319,17 @@ export default function Settings() {
                 </div>
 
                 {loadingUsage && !aiUsageStats ? (
-                  <div className="flex flex-col items-center justify-center py-20">
-                    <RefreshCw className="h-8 w-8 text-blue-500 animate-spin mb-3" />
-                    <p className="text-sm text-gray-400">Loading AI usage metrics...</p>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div className="h-28 bg-gray-50 rounded-2xl animate-pulse" />
+                      <div className="h-28 bg-gray-50 rounded-2xl animate-pulse" />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="h-16 bg-gray-50 rounded-xl animate-pulse" />
+                      ))}
+                    </div>
+                    <div className="h-32 bg-gray-50 rounded-2xl animate-pulse" />
                   </div>
                 ) : !aiUsageStats ? (
                   <div className="text-center py-16 border border-dashed border-gray-200 rounded-2xl">
@@ -1100,6 +1337,32 @@ export default function Settings() {
                   </div>
                 ) : (
                   <div className="space-y-6">
+                    {/* Warnings and Banners */}
+                    {aiUsageStats.warnings?.daily === 'critical' && (
+                      <div className="rounded-2xl bg-red-50 border border-red-200 p-4 text-red-700 text-xs font-semibold flex items-center gap-2">
+                        <AlertTriangle className="h-4.5 w-4.5 text-red-500 shrink-0" />
+                        Critical: Daily AI budget is almost exhausted ({aiUsageStats.usage?.daily?.percentage}% used). AI calls are blocked.
+                      </div>
+                    )}
+                    {aiUsageStats.warnings?.daily === 'approaching' && (
+                      <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-amber-700 text-xs font-semibold flex items-center gap-2">
+                        <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0" />
+                        Warning: Daily AI budget usage is approaching limits ({aiUsageStats.usage?.daily?.percentage}% used).
+                      </div>
+                    )}
+                    {aiUsageStats.warnings?.monthly === 'critical' && (
+                      <div className="rounded-2xl bg-red-50 border border-red-200 p-4 text-red-700 text-xs font-semibold flex items-center gap-2">
+                        <AlertTriangle className="h-4.5 w-4.5 text-red-500 shrink-0" />
+                        Critical: Monthly AI budget is almost exhausted ({aiUsageStats.usage?.monthly?.percentage}% used). AI calls are blocked.
+                      </div>
+                    )}
+                    {aiUsageStats.warnings?.monthly === 'approaching' && (
+                      <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-amber-700 text-xs font-semibold flex items-center gap-2">
+                        <AlertTriangle className="h-4.5 w-4.5 text-amber-500 shrink-0" />
+                        Warning: Monthly AI budget usage is approaching limits ({aiUsageStats.usage?.monthly?.percentage}% used).
+                      </div>
+                    )}
+
                     {/* Budget & Spend Meters */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {/* Daily Budget */}
@@ -1107,19 +1370,19 @@ export default function Settings() {
                         <div className="flex items-center justify-between mb-3">
                           <p className="text-[13px] font-bold text-gray-700">Daily Budget</p>
                           <span className="text-[12px] font-bold text-gray-900">
-                            ${(aiUsageStats.budget.daily.spent || 0).toFixed(4)} / ${(aiUsageStats.budget.daily.limit || 0).toFixed(2)}
+                            ${(aiUsageStats.usage?.daily?.spend || 0).toFixed(4)} / ${(aiUsageStats.usage?.daily?.budget || 0).toFixed(2)}
                           </span>
                         </div>
                         <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden mb-2">
                           <div 
                             className={`h-full rounded-full transition-all duration-500 ${
-                              ((aiUsageStats.budget.daily.spent || 0) / (aiUsageStats.budget.daily.limit || 1)) > 0.8 ? 'bg-red-500' : 'bg-blue-600'
+                              aiUsageStats.warnings?.daily === 'critical' ? 'bg-red-500' : 'bg-blue-600'
                             }`}
-                            style={{ width: `${Math.min(100, ((aiUsageStats.budget.daily.spent || 0) / (aiUsageStats.budget.daily.limit || 1)) * 100)}%` }}
+                            style={{ width: `${Math.min(100, aiUsageStats.usage?.daily?.percentage || 0)}%` }}
                           />
                         </div>
-                        <p className="text-[11px] text-gray-400">
-                          ${(aiUsageStats.budget.daily.remaining || 0).toFixed(4)} remaining today
+                        <p className="text-[11px] text-gray-400 font-semibold">
+                          ${Math.max(0, (aiUsageStats.usage?.daily?.budget || 0) - (aiUsageStats.usage?.daily?.spend || 0)).toFixed(4)} remaining today
                         </p>
                       </div>
 
@@ -1128,19 +1391,19 @@ export default function Settings() {
                         <div className="flex items-center justify-between mb-3">
                           <p className="text-[13px] font-bold text-gray-700">Monthly Budget</p>
                           <span className="text-[12px] font-bold text-gray-900">
-                            ${(aiUsageStats.budget.monthly.spent || 0).toFixed(4)} / ${(aiUsageStats.budget.monthly.limit || 0).toFixed(2)}
+                            ${(aiUsageStats.usage?.monthly?.spend || 0).toFixed(4)} / ${(aiUsageStats.usage?.monthly?.budget || 0).toFixed(2)}
                           </span>
                         </div>
                         <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden mb-2">
                           <div 
                             className={`h-full rounded-full transition-all duration-500 ${
-                              ((aiUsageStats.budget.monthly.spent || 0) / (aiUsageStats.budget.monthly.limit || 1)) > 0.8 ? 'bg-red-500' : 'bg-indigo-600'
+                              aiUsageStats.warnings?.monthly === 'critical' ? 'bg-red-500' : 'bg-indigo-600'
                             }`}
-                            style={{ width: `${Math.min(100, ((aiUsageStats.budget.monthly.spent || 0) / (aiUsageStats.budget.monthly.limit || 1)) * 100)}%` }}
+                            style={{ width: `${Math.min(100, aiUsageStats.usage?.monthly?.percentage || 0)}%` }}
                           />
                         </div>
-                        <p className="text-[11px] text-gray-400">
-                          ${(aiUsageStats.budget.monthly.remaining || 0).toFixed(4)} remaining this month
+                        <p className="text-[11px] text-gray-400 font-semibold">
+                          ${Math.max(0, (aiUsageStats.usage?.monthly?.budget || 0) - (aiUsageStats.usage?.monthly?.spend || 0)).toFixed(4)} remaining this month
                         </p>
                       </div>
                     </div>
@@ -1149,19 +1412,19 @@ export default function Settings() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div className="border border-gray-100 rounded-xl p-4 bg-white shadow-sm text-center">
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Today's Calls</p>
-                        <p className="text-xl font-bold text-gray-900 mt-1">{aiUsageStats.today.calls || 0}</p>
+                        <p className="text-xl font-bold text-gray-900 mt-1">{aiUsageStats.usage?.todayCalls || 0}</p>
                       </div>
                       <div className="border border-gray-100 rounded-xl p-4 bg-white shadow-sm text-center">
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Tokens Used</p>
-                        <p className="text-xl font-bold text-gray-900 mt-1">{aiUsageStats.today.tokens || 0}</p>
+                        <p className="text-xl font-bold text-gray-900 mt-1">{aiUsageStats.usage?.todayTokens || 0}</p>
                       </div>
                       <div className="border border-gray-100 rounded-xl p-4 bg-white shadow-sm text-center">
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Cache Hits</p>
-                        <p className="text-xl font-bold text-emerald-600 mt-1">{aiUsageStats.today.cacheHits || 0}</p>
+                        <p className="text-xl font-bold text-emerald-600 mt-1">{aiUsageStats.usage?.cacheHits || 0}</p>
                       </div>
                       <div className="border border-gray-100 rounded-xl p-4 bg-white shadow-sm text-center">
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">AI Provider</p>
-                        <p className="text-md font-bold text-blue-600 mt-1.5 uppercase">{aiUsageStats.provider}</p>
+                        <p className="text-md font-bold text-blue-600 mt-1.5 uppercase">{aiUsageStats.provider?.active || 'stub'}</p>
                       </div>
                     </div>
 
@@ -1170,21 +1433,56 @@ export default function Settings() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="border border-gray-100 rounded-xl p-3.5">
                           <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Fast Model</span>
-                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.fastModel}</p>
+                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.provider?.fastModel || 'gpt-4o-mini'}</p>
                         </div>
                         <div className="border border-gray-100 rounded-xl p-3.5">
                           <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">Premium Model</span>
-                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.premiumModel}</p>
+                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.provider?.premiumModel || 'gpt-4o'}</p>
                         </div>
                         <div className="border border-gray-100 rounded-xl p-3.5">
                           <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Cache Entries</span>
-                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.cacheEntries} active caches</p>
+                          <p className="text-sm font-bold text-gray-800 mt-1.5">{aiUsageStats.cache?.entries || 0} active caches</p>
                         </div>
                       </div>
                     </Section>
 
+                    {/* Update Budget Limits Section */}
+                    <Section title="Update Budget Limits" desc="Modify daily and monthly spend limits for AI features.">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+                        <div>
+                          <label className="block text-[12px] font-semibold text-gray-500 mb-1.5">Daily Budget ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editDailyBudget}
+                            onChange={(e) => setEditDailyBudget(e.target.value)}
+                            className="w-full h-10 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 px-3.5 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[12px] font-semibold text-gray-500 mb-1.5">Monthly Budget ($)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editMonthlyBudget}
+                            onChange={(e) => setEditMonthlyBudget(e.target.value)}
+                            className="w-full h-10 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 px-3.5 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        <button
+                          onClick={handleSaveBudgets}
+                          disabled={savingBudgets}
+                          className="rounded-xl bg-blue-600 text-white text-[13px] font-bold px-5 py-2.5 hover:bg-blue-700 transition cursor-pointer disabled:opacity-50"
+                        >
+                          {savingBudgets ? 'Saving...' : 'Save Budget Limits'}
+                        </button>
+                      </div>
+                    </Section>
+
                     {/* Method Breakdown */}
-                    {aiUsageStats.methodBreakdown && aiUsageStats.methodBreakdown.length > 0 && (
+                    {aiUsageStats.breakdown && aiUsageStats.breakdown.length > 0 && (
                       <Section title="Per-Method Performance (This Month)" desc="Cost and execution latency of active AI generator features.">
                         <div className="overflow-x-auto rounded-xl border border-gray-100">
                           <table className="min-w-full divide-y divide-gray-100">
@@ -1198,7 +1496,7 @@ export default function Settings() {
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-100 text-[13px] text-gray-600">
-                              {aiUsageStats.methodBreakdown.map((row) => (
+                              {aiUsageStats.breakdown.map((row) => (
                                 <tr key={row._id}>
                                   <td className="px-4 py-3 font-semibold text-gray-800">{row._id}</td>
                                   <td className="px-4 py-3 text-center">{row.calls}</td>
@@ -1436,18 +1734,7 @@ export default function Settings() {
                   </div>
                 </Section>
 
-                <Section title="Payment Method" desc="Manage your payment details." noBorder>
-                  <div className="rounded-xl border border-gray-100 p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-14 items-center justify-center rounded-lg bg-gradient-to-r from-blue-600 to-blue-800 text-white text-[10px] font-bold">VISA</div>
-                      <div>
-                        <p className="text-[13px] font-semibold text-gray-800">Visa ending in 4242</p>
-                        <p className="text-[11px] text-gray-400">Expires 12/2028</p>
-                      </div>
-                    </div>
-                    <button onClick={() => showToast('Payment update coming soon!', 'info')} className="rounded-xl border border-gray-200 text-[12px] font-medium text-gray-600 px-4 py-2 hover:bg-gray-50 transition cursor-pointer">Update</button>
-                  </div>
-                </Section>
+                
               </>
             )}
 
@@ -1473,6 +1760,104 @@ export default function Settings() {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Newly Regenerated API Key Overlay Modal ───────────────────── */}
+      <AnimatePresence>
+        {newRegeneratedKey && (
+          <ConfirmRegeneratedKeyModal
+            rawKey={newRegeneratedKey}
+            onClose={() => setNewRegeneratedKey(null)}
+            onCopy={() => copyApiKey(newRegeneratedKey)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ConfirmRegeneratedKeyModal({ rawKey, onClose, onCopy }) {
+  const [timeLeft, setTimeLeft] = useState(60)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          onClose()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [onClose])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-[20px] border border-gray-100 shadow-2xl p-6 max-w-md w-full mx-4 space-y-4"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+          </div>
+          <div>
+            <h3 className="text-[15px] font-bold text-gray-900">New API Key Generated</h3>
+            <p className="text-[12px] text-gray-400 mt-0.5">Please copy this key now. You won't be able to see it again.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl bg-gray-50 p-3.5 border border-amber-100">
+          <code className="text-[12px] text-amber-800 font-mono flex-1 select-all break-all">
+            {rawKey}
+          </code>
+          <button
+            onClick={onCopy}
+            className="rounded-lg bg-white border border-gray-200 p-2 text-gray-500 hover:text-blue-600 hover:border-blue-300 transition cursor-pointer"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex justify-between items-center pt-2">
+          <span className="text-[11px] text-gray-300">Autoclosing in {timeLeft}s for security</span>
+          <button
+            onClick={onClose}
+            className="rounded-xl bg-gray-950 text-white text-[12px] font-semibold px-4 py-2 hover:bg-black transition cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+function IntegrationSkeleton() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="flex items-center justify-between rounded-xl border border-gray-100 p-4 bg-white">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 bg-gray-100 rounded-xl" />
+            <div className="space-y-2">
+              <div className="h-3.5 w-24 bg-gray-100 rounded" />
+              <div className="h-2.5 w-44 bg-gray-100 rounded" />
+            </div>
+          </div>
+          <div className="h-8 w-20 bg-gray-100 rounded-xl" />
+        </div>
+      ))}
     </div>
   )
 }

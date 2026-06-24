@@ -23,6 +23,11 @@ const aiResponseCacheSchema = new mongoose.Schema({
     type: String,
     default: 'openai'
   },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true
+  },
   usage: {
     promptTokens: { type: Number, default: 0 },
     completionTokens: { type: Number, default: 0 },

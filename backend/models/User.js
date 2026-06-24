@@ -97,6 +97,87 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  integrations: {
+    youtube: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      channelCount: { type: Number, default: 0 },
+      lastSyncAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'syncing', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    },
+    googleAnalytics: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    },
+    instagram: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    },
+    twitter: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    },
+    discord: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    },
+    slack: {
+      connected: { type: Boolean, default: false },
+      connectedAt: Date,
+      lastError: { type: String, default: null },
+      updatedAt: { type: Date, default: Date.now },
+      status: {
+        type: String,
+        enum: ['connected', 'error', 'disconnected'],
+        default: 'disconnected'
+      }
+    }
+  },
+  apiKeys: [{
+    keyHash: { type: String, required: true },
+    keyPreview: { type: String, required: true },
+    fingerprint: { type: String, required: true },
+    active: { type: Boolean, default: true },
+    createdAt: { type: Date, default: Date.now },
+    lastUsedAt: Date,
+    rateLimit: { type: Number, default: 1000 },
+    requestsToday: { type: Number, default: 0 },
+    lastResetAt: Date
+  }],
   activeSessions: [{
     sessionId: {
       type: String,
@@ -135,12 +216,26 @@ const userSchema = new mongoose.Schema({
       default: Date.now,
     },
   }],
+  aiUsage: {
+    dailyBudget: { type: Number, default: 5 },
+    monthlyBudget: { type: Number, default: 50 },
+    todaySpend: { type: Number, default: 0 },
+    monthSpend: { type: Number, default: 0 },
+    todayCalls: { type: Number, default: 0 },
+    todayTokens: { type: Number, default: 0 },
+    cacheHits: { type: Number, default: 0 },
+    providerFallbacks: { type: Number, default: 0 },
+    lastResetDay: { type: Date, default: Date.now },
+    lastResetMonth: { type: Date, default: Date.now }
+  }
 }, {
   timestamps: true,
 })
 
 // Index for fast session lookup
 userSchema.index({ 'activeSessions.sessionId': 1 })
+userSchema.index({ 'apiKeys.fingerprint': 1, 'apiKeys.active': 1 })
+userSchema.index({ _id: 1, 'aiUsage.lastResetDay': 1 })
 
 // ── Pre-save: password hashing & tracking ─────────────────────────────────
 userSchema.pre('save', async function (next) {
@@ -180,6 +275,24 @@ userSchema.pre('save', function (next) {
     this.name = `${this.firstName} ${this.lastName}`.trim()
   }
 
+  next()
+})
+
+userSchema.pre('save', function (next) {
+  this.integrations = this.integrations || {}
+  this.apiKeys = this.apiKeys || []
+  this.aiUsage = this.aiUsage || {
+    dailyBudget: 5,
+    monthlyBudget: 50,
+    todaySpend: 0,
+    monthSpend: 0,
+    todayCalls: 0,
+    todayTokens: 0,
+    cacheHits: 0,
+    providerFallbacks: 0,
+    lastResetDay: new Date(),
+    lastResetMonth: new Date()
+  }
   next()
 })
 
