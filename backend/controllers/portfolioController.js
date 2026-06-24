@@ -9,7 +9,8 @@ function attachAIHeaders(res) {
   res.setHeader('X-AI-Status', 'success')
 }
 
-async function loadPortfolioContext(channelIds, workspaceId) {
+async function loadPortfolioContext(rawChannelIds, workspaceId) {
+  const channelIds = [...new Set(rawChannelIds)]
   const channels = await Channel.find({ channelId: { $in: channelIds }, workspaceId }).lean()
   if (channels.length !== channelIds.length) {
     throw new AppError('One or more channel IDs do not belong to this workspace', 403)
@@ -47,8 +48,11 @@ async function cachedPortfolioAI(channelIds, feature, workspaceId, providerFn) {
 
 function withMeta(result, feature) {
   return {
-    ...result,
-    meta: { ...result.meta, feature, requestedAt: new Date().toISOString() },
+    success: true,
+    data: {
+      ...result,
+      meta: { ...result?.meta, feature, requestedAt: new Date().toISOString() },
+    },
   }
 }
 
