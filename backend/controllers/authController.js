@@ -4,17 +4,22 @@ import User from '../models/User.js'
 import Workspace from '../models/Workspace.js'
 import AuditLog from '../models/AuditLog.js'
 import { AppError } from '../utils/errorHandler.js'
+import { parseUserAgent, getLocationFromIp, generateSessionId } from '../utils/sessionHelper.js'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'creator-analytics-secret-jwt-key-2026'
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 // Helper to sign JWT
-function signToken(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' })
+export function signToken(userId, sessionId) {
+  const payload = { userId }
+  if (sessionId) {
+    payload.sessionId = sessionId
+  }
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' })
 }
 
 // Helper to set cookie
-function sendCookieToken(res, token) {
+export function sendCookieToken(res, token) {
   const secure = process.env.NODE_ENV === 'production' || !!process.env.VERCEL
   res.cookie('token', token, {
     httpOnly: true,
@@ -66,10 +71,30 @@ export async function signup(req, res, next) {
     user.activeWorkspaceId = workspace._id
     user.lastLoginAt = new Date()
     user.lastActiveAt = new Date()
+
+    // Generate session
+    const sessionId = generateSessionId()
+    const rawIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || ''
+    const ua = req.headers['user-agent'] || ''
+    const { browser, os, device } = parseUserAgent(ua)
+    const location = getLocationFromIp(rawIp)
+
+    user.activeSessions.push({
+      sessionId,
+      browser,
+      os,
+      device,
+      ipAddress: rawIp,
+      location,
+      userAgent: ua,
+      createdAt: new Date(),
+      lastActiveAt: new Date()
+    })
+
     await user.save()
 
-    // 5. Sign & set JWT cookie
-    const token = signToken(user._id)
+    // 5. Sign & set JWT cookie with sessionId
+    const token = signToken(user._id, sessionId)
     sendCookieToken(res, token)
 
     // 6. Write AuditLog
@@ -121,7 +146,34 @@ export async function login(req, res, next) {
     // Update login telemetry
     user.lastLoginAt = new Date()
     user.lastActiveAt = new Date()
-    
+
+    // Generate session
+    const sessionId = generateSessionId()
+    const rawIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip || req.socket.remoteAddress || ''
+    const ua = req.headers['user-agent'] || ''
+    const { browser, os, device } = parseUserAgent(ua)
+    const location = getLocationFromIp(rawIp)
+
+    user.activeSessions.push({
+      sessionId,
+      browser,
+      os,
+      device,
+      ipAddress: rawIp,
+      location,
+      userAgent: ua,
+      createdAt: new Date(),
+      lastActiveAt: new Date()
+    })
+
+    // Enforce max 10 sessions (delete oldest by lastActiveAt)
+    if (user.activeSessions.length > 10) {
+      user.activeSessions.sort((a, b) => a.lastActiveAt - b.lastActiveAt)
+      while (user.activeSessions.length > 10) {
+        user.activeSessions.shift()
+      }
+    }
+
     // If user belongs to a workspace but has no activeWorkspaceId, resolve it
     if (!user.activeWorkspaceId) {
       const workspace = await Workspace.findOne({ 'members.userId': user._id, isDeleted: false })
@@ -130,7 +182,7 @@ export async function login(req, res, next) {
     await user.save()
 
     // Sign & set cookie
-    const token = signToken(user._id)
+    const token = signToken(user._id, sessionId)
     sendCookieToken(res, token)
 
     // Write AuditLog
@@ -168,6 +220,12 @@ export async function login(req, res, next) {
  */
 export async function logout(req, res, next) {
   try {
+    // Remove session if user is logged in and sessionId is active
+    if (req.user && req.sessionId) {
+      req.user.activeSessions = req.user.activeSessions.filter(s => s.sessionId !== req.sessionId)
+      await req.user.save().catch(err => console.warn('Failed to clean up session on logout:', err.message))
+    }
+
     const secure = process.env.NODE_ENV === 'production' || !!process.env.VERCEL
     res.clearCookie('token', {
       httpOnly: true,

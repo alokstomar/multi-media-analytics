@@ -40,9 +40,49 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ success: false, error: 'User account not found.' })
     }
 
-    // Update user's lastActiveAt asynchronously
-    user.lastActiveAt = new Date()
-    await user.save().catch(err => console.warn('Failed to update lastActiveAt:', err.message))
+    // 1. Password change invalidation check
+    if (user.passwordChangedAt && decoded.iat && (decoded.iat * 1000) < user.passwordChangedAt.getTime()) {
+      res.clearCookie('token')
+      return res.status(401).json({ success: false, error: 'Password was recently changed. Please log in again.' })
+    }
+
+    // 2. Active Session tracking & verification
+    const now = new Date()
+    const FIVE_MINUTES = 5 * 60 * 1000
+
+    if (decoded.sessionId) {
+      const session = user.activeSessions.find(s => s.sessionId === decoded.sessionId)
+      if (!session) {
+        res.clearCookie('token')
+        return res.status(401).json({ success: false, error: 'Session has been revoked or expired.' })
+      }
+
+      // Throttle session and user level lastActiveAt updates to once every 5 minutes
+      if (!session.lastActiveAt || (now - session.lastActiveAt) > FIVE_MINUTES) {
+        session.lastActiveAt = now
+        user.lastActiveAt = now
+        await User.updateOne(
+          { _id: user._id, 'activeSessions.sessionId': decoded.sessionId },
+          { 
+            $set: { 
+              lastActiveAt: now,
+              'activeSessions.$.lastActiveAt': now 
+            } 
+          }
+        ).catch(err => console.warn('Failed to update session lastActiveAt:', err.message))
+      }
+
+      req.sessionId = decoded.sessionId
+    } else {
+      // Backward compatibility: If no sessionId (old JWT), bypass check but still throttle user level lastActiveAt
+      if (!user.lastActiveAt || (now - user.lastActiveAt) > FIVE_MINUTES) {
+        user.lastActiveAt = now
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { lastActiveAt: now } }
+        ).catch(err => console.warn('Failed to update user lastActiveAt:', err.message))
+      }
+    }
 
     req.user = user
     next()

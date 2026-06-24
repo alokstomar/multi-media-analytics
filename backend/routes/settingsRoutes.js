@@ -4,6 +4,10 @@ import {
   updateProfile,
   uploadAvatar,
   removeAvatar,
+  getSessions,
+  revokeSession,
+  revokeAllOtherSessions,
+  updatePassword,
 } from '../controllers/settingsController.js'
 
 const router = Router()
@@ -15,5 +19,11 @@ router.get('/profile', getProfile)
 router.patch('/profile', updateProfile)
 router.post('/avatar', uploadAvatar)
 router.delete('/avatar', removeAvatar)
+
+// Active session tracking & security routes
+router.get('/sessions', getSessions)
+router.delete('/sessions/:sessionId', revokeSession)
+router.delete('/sessions', revokeAllOtherSessions)
+router.post('/password', updatePassword)
 
 export default router

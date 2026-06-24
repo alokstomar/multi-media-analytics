@@ -175,6 +175,19 @@ export const uploadAvatar = (base64) =>
 export const removeAvatarApi = () =>
   api.delete('/api/settings/avatar').then((r) => r.data)
 
+// Active Session tracking & security APIs
+export const getSessions = () =>
+  api.get('/api/settings/sessions').then((r) => r.data)
+
+export const revokeSessionApi = (sessionId) =>
+  api.delete(`/api/settings/sessions/${sessionId}`).then((r) => r.data)
+
+export const revokeAllOtherSessionsApi = () =>
+  api.delete('/api/settings/sessions').then((r) => r.data)
+
+export const updatePasswordApi = (payload) =>
+  api.post('/api/settings/password', payload).then((r) => r.data)
+
 // ── Dashboard (all-in-one) ───────────────────────────────────────────
 export const getDashboard = (id) =>
   api.get(`/api/dashboard/${id}`).then((r) => r.data)

@@ -93,13 +93,64 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  passwordChangedAt: {
+    type: Date,
+    default: null,
+  },
+  activeSessions: [{
+    sessionId: {
+      type: String,
+      required: true,
+    },
+    browser: {
+      type: String,
+      default: '',
+    },
+    os: {
+      type: String,
+      default: '',
+    },
+    device: {
+      type: String,
+      default: '',
+    },
+    ipAddress: {
+      type: String,
+      default: '',
+    },
+    location: {
+      type: String,
+      default: '',
+    },
+    userAgent: {
+      type: String,
+      default: '',
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+    lastActiveAt: {
+      type: Date,
+      default: Date.now,
+    },
+  }],
 }, {
   timestamps: true,
 })
 
-// ── Pre-save: password hashing ────────────────────────────────────────────
+// Index for fast session lookup
+userSchema.index({ 'activeSessions.sessionId': 1 })
+
+// ── Pre-save: password hashing & tracking ─────────────────────────────────
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next()
+  
+  // Set passwordChangedAt if this is an existing user updating their password
+  if (!this.isNew) {
+    this.passwordChangedAt = new Date(Date.now() - 1000)
+  }
+
   try {
     const salt = await bcrypt.genSalt(10)
     this.password = await bcrypt.hash(this.password, salt)

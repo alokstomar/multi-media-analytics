@@ -7,7 +7,11 @@ import {
   Download, Trash2, LogOut, ExternalLink, Sparkles, Zap,
   X, CheckCircle2, AlertTriangle, Copy, Eye, EyeOff, RefreshCw,
 } from 'lucide-react'
-import { getAIUsageStats, getQueueMetrics, getProfile, updateProfile as apiUpdateProfile, uploadAvatar, removeAvatarApi } from '../services/api'
+import {
+  getAIUsageStats, getQueueMetrics, getProfile, updateProfile as apiUpdateProfile,
+  uploadAvatar, removeAvatarApi, getSessions, revokeSessionApi,
+  revokeAllOtherSessionsApi, updatePasswordApi
+} from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 const cs = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)'
@@ -143,12 +147,15 @@ function Toggle({ on, onChange }) {
 }
 
 /* ── Section wrapper ─────────────────────────────────────────── */
-function Section({ title, desc, children, noBorder }) {
+function Section({ title, desc, children, noBorder, action }) {
   return (
     <div className={`py-6 ${noBorder ? '' : 'border-b border-gray-100'}`}>
-      <div className="mb-4">
-        <h3 className="text-[15px] font-bold text-gray-900">{title}</h3>
-        {desc && <p className="text-[12px] text-gray-400 mt-0.5">{desc}</p>}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-[15px] font-bold text-gray-900">{title}</h3>
+          {desc && <p className="text-[12px] text-gray-400 mt-0.5">{desc}</p>}
+        </div>
+        {action}
       </div>
       {children}
     </div>
@@ -212,6 +219,41 @@ function InitialsAvatar({ firstName, lastName, size = 80 }) {
   )
 }
 
+const getDeviceIcon = (deviceStr) => {
+  const dev = (deviceStr || '').toLowerCase()
+  if (dev.includes('iphone') || dev.includes('ipad') || dev.includes('android') || dev.includes('phone') || dev.includes('smartphone')) {
+    return Smartphone
+  }
+  if (dev.includes('macbook') || dev.includes('laptop') || dev.includes('notebook')) {
+    return Laptop
+  }
+  return Monitor
+}
+
+const formatRelativeTime = (dateInput) => {
+  if (!dateInput) return 'Unknown'
+  const date = new Date(dateInput)
+  const now = new Date()
+  const diffMs = now - date
+
+  if (diffMs < 60 * 1000) {
+    return 'Active now'
+  }
+  const diffMins = Math.floor(diffMs / (60 * 1000))
+  if (diffMins < 60) {
+    return `${diffMins}m ago`
+  }
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) {
+    return `${diffHours}h ago`
+  }
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays === 1) {
+    return 'Yesterday'
+  }
+  return `${diffDays} days ago`
+}
+
 export default function Settings() {
   const saved = loadSettings()
   const { user, updateUser } = useAuth()
@@ -232,11 +274,8 @@ export default function Settings() {
   // Security state
   const [twoFA, setTwoFA] = useState(saved?.twoFA ?? true)
   const [passwords, setPasswords] = useState({ current: '', newPwd: '', confirm: '' })
-  const [sessions, setSessions] = useState([
-    { device: 'MacBook Pro — Chrome', location: 'Mumbai, India', time: 'Active now', current: true, icon: Laptop },
-    { device: 'iPhone 15 Pro — Safari', location: 'Mumbai, India', time: '2 hours ago', current: false, icon: Smartphone },
-    { device: 'Windows PC — Edge', location: 'Delhi, India', time: '3 days ago', current: false, icon: Monitor },
-  ])
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
 
   // Appearance state
   const [appearance, setAppearance] = useState(saved?.appearance || { ...defaultAppearance })
@@ -283,11 +322,28 @@ export default function Settings() {
     }
   }
 
+  const fetchSessions = async () => {
+    setSessionsLoading(true)
+    try {
+      const res = await getSessions()
+      if (res?.success) {
+        setSessions(res.data || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch sessions:', err)
+      showToast('Failed to load active sessions', 'error')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'ai_usage') {
       fetchAIUsage()
     } else if (activeTab === 'scheduler') {
       fetchQueueStats()
+    } else if (activeTab === 'security') {
+      fetchSessions()
     }
   }, [activeTab])
 
@@ -462,12 +518,47 @@ export default function Settings() {
   }
 
   // ── Security handlers ─────────────────────
+  const handlePasswordSubmit = async (revokeOthers) => {
+    try {
+      const res = await updatePasswordApi({
+        currentPassword: passwords.current,
+        newPassword: passwords.newPwd,
+        revokeOthers
+      })
+      if (res?.success) {
+        showToast('Password updated successfully!')
+        setPasswords({ current: '', newPwd: '', confirm: '' })
+        if (revokeOthers) {
+          setSessions(prev => prev.filter(s => s.current))
+        }
+      } else {
+        showToast('Failed to update password', 'error')
+      }
+    } catch (err) {
+      showToast(err?.response?.data?.error || 'Failed to update password', 'error')
+    }
+  }
+
   const handlePasswordUpdate = () => {
     if (!passwords.current) { showToast('Enter your current password', 'error'); return }
     if (passwords.newPwd.length < 8) { showToast('New password must be at least 8 characters', 'error'); return }
     if (passwords.newPwd !== passwords.confirm) { showToast('Passwords do not match', 'error'); return }
-    setPasswords({ current: '', newPwd: '', confirm: '' })
-    showToast('Password updated successfully!')
+
+    setModal({
+      title: 'Log out from other devices?',
+      desc: 'Would you like to log out from all other active sessions and devices for security?',
+      confirmLabel: 'Log out other devices',
+      cancelLabel: 'Keep them signed in',
+      danger: true,
+      onConfirm: () => {
+        handlePasswordSubmit(true)
+        setModal(null)
+      },
+      onCancel: () => {
+        handlePasswordSubmit(false)
+        setModal(null)
+      }
+    })
   }
 
   const toggleTwoFA = (value) => {
@@ -475,17 +566,51 @@ export default function Settings() {
     showToast(value ? '2FA enabled — your account is more secure' : '2FA disabled', value ? 'success' : 'info')
   }
 
-  const revokeSession = (device) => {
+  const revokeSession = (sessionId, deviceName) => {
     setModal({
       title: 'Revoke Session',
-      desc: `Are you sure you want to sign out from "${device}"?`,
+      desc: `Are you sure you want to sign out from "${deviceName}"?`,
       confirmLabel: 'Revoke',
       danger: true,
-      onConfirm: () => {
-        setSessions(prev => prev.filter(s => s.device !== device))
-        setModal(null)
-        showToast('Session revoked successfully')
+      onConfirm: async () => {
+        try {
+          const res = await revokeSessionApi(sessionId)
+          if (res?.success) {
+            setSessions(prev => prev.filter(s => s.sessionId !== sessionId))
+            showToast('Session revoked successfully')
+          } else {
+            showToast('Failed to revoke session', 'error')
+          }
+        } catch (err) {
+          showToast(err?.response?.data?.error || 'Failed to revoke session', 'error')
+        } finally {
+          setModal(null)
+        }
       },
+    })
+  }
+
+  const handleRevokeAllOthers = () => {
+    setModal({
+      title: 'Revoke All Other Sessions',
+      desc: 'Are you sure you want to sign out from all other devices? Any other active devices will be logged out immediately.',
+      confirmLabel: 'Revoke All Others',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const res = await revokeAllOtherSessionsApi()
+          if (res?.success) {
+            setSessions(prev => prev.filter(s => s.current))
+            showToast('All other sessions revoked successfully')
+          } else {
+            showToast('Failed to revoke other sessions', 'error')
+          }
+        } catch (err) {
+          showToast(err?.response?.data?.error || 'Failed to revoke other sessions', 'error')
+        } finally {
+          setModal(null)
+        }
+      }
     })
   }
 
@@ -818,7 +943,7 @@ export default function Settings() {
                   </div>
                 </Section>
 
-                <Section title="Two-Factor Authentication" desc="Add an extra layer of security to your account.">
+                <Section title="Two-Factor Authentication" desc="Add an extra layer of security to your account." noBorder>
                   <div className="flex items-center justify-between rounded-xl border border-gray-100 p-5">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50"><Shield className="h-5 w-5 text-emerald-500" /></div>
@@ -831,31 +956,6 @@ export default function Settings() {
                       {twoFA && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600"><Check className="h-3 w-3" />Enabled</span>}
                       <Toggle on={twoFA} onChange={toggleTwoFA} />
                     </div>
-                  </div>
-                </Section>
-
-                <Section title="Active Sessions" desc="Manage devices where you're signed in." noBorder>
-                  <div className="space-y-3">
-                    {sessions.length === 0 ? (
-                      <div className="text-center py-8 text-gray-300 text-sm">No active sessions</div>
-                    ) : sessions.map((s) => (
-                      <motion.div
-                        key={s.device}
-                        layout
-                        initial={{ opacity: 1 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        className="flex items-center justify-between rounded-xl border border-gray-100 p-4"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-50"><s.icon className="h-4 w-4 text-gray-500" /></div>
-                          <div>
-                            <div className="flex items-center gap-2"><p className="text-[13px] font-semibold text-gray-800">{s.device}</p>{s.current && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">This device</span>}</div>
-                            <p className="text-[11px] text-gray-400">{s.location} · {s.time}</p>
-                          </div>
-                        </div>
-                        {!s.current && <button onClick={() => revokeSession(s.device)} className="text-[12px] font-medium text-red-500 hover:text-red-600 transition cursor-pointer">Revoke</button>}
-                      </motion.div>
-                    ))}
                   </div>
                 </Section>
               </>

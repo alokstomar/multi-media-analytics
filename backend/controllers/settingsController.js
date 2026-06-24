@@ -1,5 +1,6 @@
 import User from '../models/User.js'
 import { AppError } from '../utils/errorHandler.js'
+import { signToken, sendCookieToken } from './authController.js'
 
 // ── Fields that can be read from profile ─────────────────────────────────
 function buildProfileResponse(user) {
@@ -134,6 +135,128 @@ export async function removeAvatar(req, res, next) {
       success: true,
       message: 'Avatar removed.',
       data: { avatar: '' },
+    })
+  } catch (err) { next(err) }
+}
+
+/**
+ * GET /api/settings/sessions
+ * Returns user's active login sessions.
+ */
+export async function getSessions(req, res, next) {
+  try {
+    const user = await User.findById(req.user._id).lean()
+    if (!user) throw new AppError('User not found', 404)
+
+    const sessions = (user.activeSessions || []).map(s => ({
+      sessionId: s.sessionId,
+      browser: s.browser || 'Unknown Browser',
+      os: s.os || 'Unknown OS',
+      device: s.device || 'Unknown Device',
+      location: s.location || 'Unknown location',
+      createdAt: s.createdAt,
+      lastActiveAt: s.lastActiveAt,
+      current: s.sessionId === req.sessionId
+    }))
+
+    res.json({
+      success: true,
+      data: sessions
+    })
+  } catch (err) { next(err) }
+}
+
+/**
+ * DELETE /api/settings/sessions/:sessionId
+ * Revokes a specific session.
+ */
+export async function revokeSession(req, res, next) {
+  try {
+    const { sessionId } = req.params
+    if (!sessionId) {
+      throw new AppError('Session ID is required', 400)
+    }
+
+    if (sessionId === req.sessionId) {
+      throw new AppError('You cannot revoke your current active session', 400)
+    }
+
+    const user = await User.findById(req.user._id)
+    if (!user) throw new AppError('User not found', 404)
+
+    const initialLength = user.activeSessions.length
+    user.activeSessions = user.activeSessions.filter(s => s.sessionId !== sessionId)
+
+    if (user.activeSessions.length === initialLength) {
+      throw new AppError('Session not found', 404)
+    }
+
+    await user.save()
+
+    res.json({
+      success: true,
+      message: 'Session revoked successfully.'
+    })
+  } catch (err) { next(err) }
+}
+
+/**
+ * DELETE /api/settings/sessions
+ * Revokes all sessions except the current active one.
+ */
+export async function revokeAllOtherSessions(req, res, next) {
+  try {
+    const user = await User.findById(req.user._id)
+    if (!user) throw new AppError('User not found', 404)
+
+    // Keep only the current session
+    user.activeSessions = user.activeSessions.filter(s => s.sessionId === req.sessionId)
+
+    await user.save()
+
+    res.json({
+      success: true,
+      message: 'All other sessions have been successfully revoked.'
+    })
+  } catch (err) { next(err) }
+}
+
+/**
+ * POST /api/settings/password
+ * Verifies current password and updates password. Optionally revokes other sessions.
+ */
+export async function updatePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword, revokeOthers } = req.body
+    if (!currentPassword || !newPassword) {
+      throw new AppError('Current password and new password are required', 400)
+    }
+
+    const user = await User.findById(req.user._id)
+    if (!user) throw new AppError('User not found', 404)
+
+    const isMatch = await user.comparePassword(currentPassword)
+    if (!isMatch) {
+      throw new AppError('Incorrect current password', 400)
+    }
+
+    user.password = newPassword // hashed by User pre-save hook
+
+    if (revokeOthers) {
+      user.activeSessions = user.activeSessions.filter(s => s.sessionId === req.sessionId)
+    }
+
+    await user.save()
+
+    // Reissue JWT token with updated iat for the current active device so it stays logged in
+    if (req.sessionId) {
+      const newToken = signToken(user._id, req.sessionId)
+      sendCookieToken(res, newToken)
+    }
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully.'
     })
   } catch (err) { next(err) }
 }
