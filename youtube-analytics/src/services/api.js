@@ -162,6 +162,19 @@ export const getAnalytics = (id) =>
 export const getInsights = (id) =>
   api.get(`/api/analytics/${id}/insights`).then((r) => r.data)
 
+// ── Settings & Profile ────────────────────────────────────────────────
+export const getProfile = () =>
+  api.get('/api/settings/profile').then((r) => r.data)
+
+export const updateProfile = (payload) =>
+  api.patch('/api/settings/profile', payload).then((r) => r.data)
+
+export const uploadAvatar = (base64) =>
+  api.post('/api/settings/avatar', { base64 }).then((r) => r.data)
+
+export const removeAvatarApi = () =>
+  api.delete('/api/settings/avatar').then((r) => r.data)
+
 // ── Dashboard (all-in-one) ───────────────────────────────────────────
 export const getDashboard = (id) =>
   api.get(`/api/dashboard/${id}`).then((r) => r.data)

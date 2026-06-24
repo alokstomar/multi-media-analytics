@@ -7,7 +7,8 @@ import {
   Download, Trash2, LogOut, ExternalLink, Sparkles, Zap,
   X, CheckCircle2, AlertTriangle, Copy, Eye, EyeOff, RefreshCw,
 } from 'lucide-react'
-import { getAIUsageStats, getQueueMetrics } from '../services/api'
+import { getAIUsageStats, getQueueMetrics, getProfile, updateProfile as apiUpdateProfile, uploadAvatar, removeAvatarApi } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 const cs = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)'
 
@@ -30,15 +31,16 @@ function saveSettings(data) {
 }
 
 /* ── Default state ───────────────────────────────────────────── */
-const defaultProfile = {
-  firstName: 'Samay',
-  lastName: 'Raina',
-  email: 'samay@creatoranalytics.io',
-  phone: '+91 98765 43210',
-  location: 'Mumbai, India',
-  org: 'Creator Analytics Inc.',
-  bio: 'Creator, comedian, chess enthusiast. Building the future of creator analytics.',
-  avatar: 'https://i.pravatar.cc/96?img=33',
+// No hardcoded profile — all values loaded from GET /api/settings/profile
+const emptyProfile = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  location: '',
+  org: '',
+  bio: '',
+  avatar: '',
 }
 
 const defaultNotifs = { email: true, push: true, sms: false, viral: true, comments: true, competitors: false, weekly: true, monthly: false }
@@ -183,15 +185,45 @@ function Field({ label, value, onChange, type = 'text', placeholder, icon: Icon,
 }
 
 /* ═══════════════════════════════════════════════════════════════ */
+/* ── Initials Avatar helper ──────────────────────────────────────── */
+function InitialsAvatar({ firstName, lastName, size = 80 }) {
+  const fn = (firstName || '').trim()
+  const ln = (lastName || '').trim()
+  const initials = fn && ln
+    ? `${fn[0]}${ln[0]}`.toUpperCase()
+    : fn ? fn[0].toUpperCase()
+    : ln ? ln[0].toUpperCase()
+    : 'U'
+  const colors = [
+    'from-blue-500 to-violet-600',
+    'from-emerald-500 to-cyan-600',
+    'from-orange-500 to-red-600',
+    'from-violet-500 to-pink-600',
+    'from-cyan-500 to-blue-600',
+  ]
+  const colorIdx = ((fn.charCodeAt(0) || 0) + (ln.charCodeAt(0) || 0)) % colors.length
+  return (
+    <div
+      className={`bg-gradient-to-br ${colors[colorIdx]} flex items-center justify-center text-white font-bold select-none rounded-2xl`}
+      style={{ width: size, height: size, fontSize: size * 0.32 }}
+    >
+      {initials}
+    </div>
+  )
+}
+
 export default function Settings() {
   const saved = loadSettings()
+  const { user, updateUser } = useAuth()
 
   const [activeTab, setActiveTab] = useState('profile')
   const [toast, setToast] = useState(null)
   const [modal, setModal] = useState(null)
 
-  // Profile state
-  const [profile, setProfile] = useState(saved?.profile || { ...defaultProfile })
+  // Profile state — loaded from API, not from hardcoded defaults
+  const [profile, setProfile] = useState({ ...emptyProfile })
+  const [profileLoading, setProfileLoading] = useState(true)
+  const [profileSaving, setProfileSaving] = useState(false)
   const [profileDirty, setProfileDirty] = useState(false)
 
   // Notifications state
@@ -262,54 +294,162 @@ export default function Settings() {
   // File input ref
   const fileInputRef = useRef(null)
 
-  // Persist to localStorage on relevant changes
+  // Load profile from API on mount
   useEffect(() => {
-    saveSettings({ profile, notifs, twoFA, appearance, integrations, apiKey })
-  }, [profile, notifs, twoFA, appearance, integrations, apiKey])
+    let cancelled = false
+    setProfileLoading(true)
+    getProfile()
+      .then(res => {
+        if (cancelled) return
+        if (res?.success && res.data) {
+          const d = res.data
+          setProfile({
+            firstName: d.firstName || '',
+            lastName: d.lastName || '',
+            email: d.email || '',
+            phone: d.phone || '',
+            location: d.location || '',
+            org: d.organization || '',
+            bio: d.bio || '',
+            avatar: d.avatar || '',
+          })
+        }
+      })
+      .catch(() => {
+        // If profile fetch fails, fall back to what's in AuthContext
+        if (!cancelled && user) {
+          setProfile({
+            firstName: user.firstName || '',
+            lastName: user.lastName || '',
+            email: user.email || '',
+            phone: user.phone || '',
+            location: user.location || '',
+            org: user.organization || '',
+            bio: user.bio || '',
+            avatar: user.avatar || '',
+          })
+        }
+      })
+      .finally(() => { if (!cancelled) setProfileLoading(false) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist non-profile prefs to localStorage (theme, notifs, etc.)
+  useEffect(() => {
+    saveSettings({ notifs, twoFA, appearance, integrations, apiKey })
+  }, [notifs, twoFA, appearance, integrations, apiKey])
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
   }, [])
 
   // ── Profile handlers ──────────────────────
-  const updateProfile = (key, value) => {
+  const updateProfileField = (key, value) => {
     setProfile(prev => ({ ...prev, [key]: value }))
     setProfileDirty(true)
   }
 
-  const saveProfile = () => {
-    setProfileDirty(false)
-    showToast('Profile saved successfully!')
+  const saveProfile = async () => {
+    setProfileSaving(true)
+    try {
+      const res = await apiUpdateProfile({
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        phone: profile.phone,
+        location: profile.location,
+        organization: profile.org,
+        bio: profile.bio,
+      })
+      if (res?.success) {
+        // Keep AuthContext in sync so Header updates immediately
+        updateUser({
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          name: `${profile.firstName} ${profile.lastName}`.trim(),
+          phone: profile.phone,
+          location: profile.location,
+          organization: profile.org,
+          bio: profile.bio,
+        })
+        setProfileDirty(false)
+        showToast('Profile saved successfully!')
+      } else {
+        showToast('Failed to save profile', 'error')
+      }
+    } catch (err) {
+      showToast(err?.response?.data?.error || 'Failed to save profile', 'error')
+    } finally {
+      setProfileSaving(false)
+    }
   }
 
-  const cancelProfile = () => {
-    setProfile(saved?.profile || { ...defaultProfile })
+  const cancelProfile = useCallback(() => {
+    // Reload from API to discard local edits
+    setProfileLoading(true)
     setProfileDirty(false)
+    getProfile()
+      .then(res => {
+        if (res?.success && res.data) {
+          const d = res.data
+          setProfile({
+            firstName: d.firstName || '',
+            lastName: d.lastName || '',
+            email: d.email || '',
+            phone: d.phone || '',
+            location: d.location || '',
+            org: d.organization || '',
+            bio: d.bio || '',
+            avatar: d.avatar || '',
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProfileLoading(false))
     showToast('Changes discarded', 'info')
-  }
+  }, [])
 
-  const handleAvatarUpload = (e) => {
+  const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) {
       showToast('File too large. Max 2MB allowed.', 'error')
       return
     }
-    if (!['image/jpeg', 'image/png', 'image/gif'].includes(file.type)) {
-      showToast('Only JPG, PNG, or GIF allowed.', 'error')
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      showToast('Only JPG, PNG, GIF, or WebP allowed.', 'error')
       return
     }
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      updateProfile('avatar', ev.target.result)
-      showToast('Avatar updated!')
+    reader.onload = async (ev) => {
+      const base64 = ev.target.result
+      try {
+        const res = await uploadAvatar(base64)
+        if (res?.success) {
+          updateProfileField('avatar', base64)
+          updateUser({ avatar: base64 })
+          showToast('Avatar updated!')
+        } else {
+          showToast('Failed to upload avatar', 'error')
+        }
+      } catch (err) {
+        showToast(err?.response?.data?.error || 'Failed to upload avatar', 'error')
+      }
     }
     reader.readAsDataURL(file)
   }
 
-  const removeAvatar = () => {
-    updateProfile('avatar', `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.firstName + ' ' + profile.lastName)}&background=3B82F6&color=fff&size=96`)
-    showToast('Avatar removed', 'info')
+  const removeAvatar = async () => {
+    try {
+      const res = await removeAvatarApi()
+      if (res?.success) {
+        updateProfileField('avatar', '')
+        updateUser({ avatar: '' })
+        showToast('Avatar removed', 'info')
+      }
+    } catch {
+      showToast('Failed to remove avatar', 'error')
+    }
   }
 
   // ── Notification handlers ─────────────────
@@ -458,7 +598,7 @@ export default function Settings() {
   return (
     <div className="min-h-screen space-y-7">
       {/* Hidden file input for avatar */}
-      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif" className="hidden" onChange={handleAvatarUpload} />
+      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={handleAvatarUpload} />
 
       {/* ── Header ─────────────────────────────────────── */}
       <div>
@@ -502,57 +642,107 @@ export default function Settings() {
             {/* ═══ PROFILE TAB ═══ */}
             {activeTab === 'profile' && (
               <>
-                <Section title="Profile Photo" desc="This will be displayed on your public profile.">
-                  <div className="flex items-center gap-5">
-                    <div className="relative group">
-                      <img src={profile.avatar} alt="Avatar" className="h-20 w-20 rounded-2xl object-cover ring-1 ring-gray-100" />
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
-                      >
-                        <Camera className="h-5 w-5 text-white" />
+                {profileLoading ? (
+                  /* Loading skeleton */
+                  <div className="space-y-6 animate-pulse">
+                    <div>
+                      <div className="h-4 w-28 bg-gray-100 rounded-lg mb-4" />
+                      <div className="flex items-center gap-5">
+                        <div className="h-20 w-20 rounded-2xl bg-gray-100" />
+                        <div className="space-y-2">
+                          <div className="h-8 w-28 bg-gray-100 rounded-xl" />
+                          <div className="h-4 w-36 bg-gray-100 rounded-lg" />
+                        </div>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <button onClick={() => fileInputRef.current?.click()} className="rounded-xl bg-blue-600 text-white text-[12px] font-semibold px-4 py-2 hover:bg-blue-700 transition cursor-pointer">Upload Photo</button>
-                      <button onClick={removeAvatar} className="rounded-xl border border-gray-200 text-gray-500 text-[12px] font-medium px-4 py-2 hover:bg-gray-50 transition ml-2 cursor-pointer">Remove</button>
-                      <p className="text-[11px] text-gray-300">JPG, PNG or GIF. Max 2MB.</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      {[...Array(6)].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded-xl" />)}
                     </div>
+                    <div className="h-24 bg-gray-100 rounded-xl" />
                   </div>
-                </Section>
+                ) : (
+                  <>
+                    <Section title="Profile Photo" desc="This will be displayed on your public profile.">
+                      <div className="flex items-center gap-5">
+                        <div className="relative group">
+                          {profile.avatar ? (
+                            <img src={profile.avatar} alt="Avatar" className="h-20 w-20 rounded-2xl object-cover ring-1 ring-gray-100" />
+                          ) : (
+                            <InitialsAvatar firstName={profile.firstName} lastName={profile.lastName} size={80} />
+                          )}
+                          <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
+                          >
+                            <Camera className="h-5 w-5 text-white" />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => fileInputRef.current?.click()} className="rounded-xl bg-blue-600 text-white text-[12px] font-semibold px-4 py-2 hover:bg-blue-700 transition cursor-pointer">Upload Photo</button>
+                            {profile.avatar && (
+                              <button onClick={removeAvatar} className="rounded-xl border border-gray-200 text-gray-500 text-[12px] font-medium px-4 py-2 hover:bg-gray-50 transition cursor-pointer">Remove</button>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-300">JPG, PNG, GIF or WebP. Max 2MB.</p>
+                        </div>
+                      </div>
+                    </Section>
 
-                <Section title="Personal Information" desc="Update your personal details.">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Field label="First Name" value={profile.firstName} onChange={(v) => updateProfile('firstName', v)} icon={User} />
-                    <Field label="Last Name" value={profile.lastName} onChange={(v) => updateProfile('lastName', v)} icon={User} />
-                    <Field label="Email Address" value={profile.email} onChange={(v) => updateProfile('email', v)} icon={Mail} type="email" />
-                    <Field label="Phone Number" value={profile.phone} onChange={(v) => updateProfile('phone', v)} icon={Phone} />
-                    <Field label="Location" value={profile.location} onChange={(v) => updateProfile('location', v)} icon={MapPin} />
-                    <Field label="Organization" value={profile.org} onChange={(v) => updateProfile('org', v)} icon={Building2} />
-                  </div>
-                </Section>
+                    <Section title="Personal Information" desc="Update your personal details.">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Field label="First Name" value={profile.firstName} onChange={(v) => updateProfileField('firstName', v)} icon={User} />
+                        <Field label="Last Name" value={profile.lastName} onChange={(v) => updateProfileField('lastName', v)} icon={User} />
+                        <div>
+                          <label className="block text-[12px] font-medium text-gray-500 mb-1.5">Email Address</label>
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+                            <input
+                              type="email"
+                              value={profile.email}
+                              disabled
+                              className="w-full h-10 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-400 pl-9 pr-3.5 opacity-70 cursor-not-allowed"
+                            />
+                          </div>
+                          <p className="text-[10px] text-gray-300 mt-1">Email address cannot be changed. Contact support to update it.</p>
+                        </div>
+                        <Field label="Phone Number" value={profile.phone} onChange={(v) => updateProfileField('phone', v)} icon={Phone} placeholder="+1 (555) 000-0000" />
+                        <Field label="Location" value={profile.location} onChange={(v) => updateProfileField('location', v)} icon={MapPin} placeholder="City, Country" />
+                        <Field label="Organization" value={profile.org} onChange={(v) => updateProfileField('org', v)} icon={Building2} placeholder="Your company or brand" />
+                      </div>
+                    </Section>
 
-                <Section title="Bio" desc="Brief description for your profile." noBorder>
-                  <textarea
-                    value={profile.bio}
-                    onChange={(e) => updateProfile('bio', e.target.value)}
-                    className="w-full h-24 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 placeholder:text-gray-300 p-3.5 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
-                  />
-                </Section>
+                    <Section title="Bio" desc="Brief description for your profile." noBorder>
+                      <textarea
+                        value={profile.bio}
+                        onChange={(e) => updateProfileField('bio', e.target.value)}
+                        placeholder="Tell the world a little about yourself..."
+                        className="w-full h-24 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 placeholder:text-gray-300 p-3.5 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all resize-none"
+                      />
+                    </Section>
 
-                <div className="flex items-center justify-between pt-6 border-t border-gray-100 mt-2">
-                  {profileDirty && (
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[12px] text-amber-500 font-medium flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                      Unsaved changes
-                    </motion.p>
-                  )}
-                  {!profileDirty && <div />}
-                  <div className="flex gap-3">
-                    <button onClick={cancelProfile} disabled={!profileDirty} className={`rounded-xl border border-gray-200 text-gray-500 text-[13px] font-medium px-5 py-2.5 transition cursor-pointer ${profileDirty ? 'hover:bg-gray-50' : 'opacity-40 cursor-not-allowed'}`}>Cancel</button>
-                    <button onClick={saveProfile} disabled={!profileDirty} className={`rounded-xl bg-blue-600 text-white text-[13px] font-semibold px-5 py-2.5 transition cursor-pointer ${profileDirty ? 'hover:bg-blue-700' : 'opacity-40 cursor-not-allowed'}`}>Save Changes</button>
-                  </div>
-                </div>
+                    <div className="flex items-center justify-between pt-6 border-t border-gray-100 mt-2">
+                      {profileDirty && (
+                        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[12px] text-amber-500 font-medium flex items-center gap-1.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                          Unsaved changes
+                        </motion.p>
+                      )}
+                      {!profileDirty && <div />}
+                      <div className="flex gap-3">
+                        <button onClick={cancelProfile} disabled={!profileDirty || profileSaving} className={`rounded-xl border border-gray-200 text-gray-500 text-[13px] font-medium px-5 py-2.5 transition cursor-pointer ${profileDirty && !profileSaving ? 'hover:bg-gray-50' : 'opacity-40 cursor-not-allowed'}`}>Cancel</button>
+                        <button
+                          onClick={saveProfile}
+                          disabled={!profileDirty || profileSaving}
+                          className={`rounded-xl bg-blue-600 text-white text-[13px] font-semibold px-5 py-2.5 transition cursor-pointer flex items-center gap-2 ${profileDirty && !profileSaving ? 'hover:bg-blue-700' : 'opacity-40 cursor-not-allowed'}`}
+                        >
+                          {profileSaving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                          {profileSaving ? 'Saving...' : 'Save Changes'}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
 

@@ -19,6 +19,7 @@ import linkedinOAuthRoutes from './routes/linkedinOAuthRoutes.js'
 import cookieParser from 'cookie-parser'
 import authRoutes from './routes/authRoutes.js'
 import workspaceRoutes from './routes/workspaceRoutes.js'
+import settingsRoutes from './routes/settingsRoutes.js'
 import { initScheduler } from './jobs/scheduler.js'
 import { requireAuth, requireWorkspace } from './middlewares/authMiddleware.js'
 
@@ -67,6 +68,7 @@ app.use('/api', verifyDbConnected)
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/workspaces', workspaceRoutes)
+app.use('/api/settings', requireAuth, settingsRoutes) // user-level profile (no workspace scope)
 
 const protect = [requireAuth, requireWorkspace]
 

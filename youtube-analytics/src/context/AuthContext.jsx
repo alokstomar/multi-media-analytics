@@ -133,6 +133,12 @@ export function AuthProvider({ children }) {
 
   const isAuthenticated = !!user
 
+  // Partially update the in-memory user object (e.g. after profile save).
+  // This avoids a full GET /api/auth/me round-trip while keeping the UI in sync.
+  const updateUser = (partial) => {
+    setUser(prev => prev ? { ...prev, ...partial } : prev)
+  }
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -149,6 +155,7 @@ export function AuthProvider({ children }) {
       fetchMe,
       fetchWorkspaces,
       setActiveWorkspace,
+      updateUser,
     }}>
       {children}
     </AuthContext.Provider>

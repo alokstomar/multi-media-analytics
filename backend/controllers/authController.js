@@ -188,8 +188,27 @@ export async function me(req, res, next) {
       return res.status(401).json({ success: false, error: 'Not authenticated' })
     }
 
-    const userObj = req.user.toObject()
-    delete userObj.password
+    // Build sanitized user object with all profile fields
+    const u = req.user
+    const userObj = {
+      _id: u._id,
+      id: u._id,
+      name: u.name,
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      email: u.email,
+      phone: u.phone || '',
+      location: u.location || '',
+      organization: u.organization || '',
+      bio: u.bio || '',
+      avatar: u.avatar || '',
+      isVerified: u.isVerified,
+      activeWorkspaceId: u.activeWorkspaceId,
+      lastLoginAt: u.lastLoginAt,
+      lastActiveAt: u.lastActiveAt,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+    }
 
     let workspace = null
     if (req.user.activeWorkspaceId) {

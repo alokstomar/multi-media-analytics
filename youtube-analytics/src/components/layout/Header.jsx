@@ -128,22 +128,50 @@ export default function Header() {
         )}
 
         {/* User Menu */}
-        {user && (
+        {user && (() => {
+          const initials = (() => {
+            const fn = user.firstName || ''
+            const ln = user.lastName || ''
+            if (fn || ln) return `${fn.charAt(0)}${ln.charAt(0)}`.toUpperCase()
+            return (user.name || 'U').charAt(0).toUpperCase()
+          })()
+          const displayName = user.firstName
+            ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+            : user.name || ''
+
+          return (
           <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center rounded-full border border-gray-200 bg-white p-0.5 hover:border-gray-300 hover:shadow-sm transition-all duration-200 cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-200/50 flex items-center justify-center text-gray-800 text-sm font-semibold select-none">
-                {user.name?.charAt(0)?.toUpperCase() || 'U'}
-              </div>
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={displayName}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-sm font-bold select-none">
+                  {initials}
+                </div>
+              )}
             </button>
 
             {showUserMenu && (
               <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.06)] border border-gray-200/80 py-1.5 z-50" style={{ animation: 'fadeIn 0.15s ease-out' }}>
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="font-semibold text-gray-900 text-sm">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                  {user.avatar ? (
+                    <img src={user.avatar} alt={displayName} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 select-none">
+                      {initials}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm truncate">{displayName}</p>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
+                  </div>
                 </div>
                 <div className="py-1">
                   <button
@@ -173,7 +201,8 @@ export default function Header() {
               </div>
             )}
           </div>
-        )}
+          )
+        })()}
       </div>
 
       <style>{`
