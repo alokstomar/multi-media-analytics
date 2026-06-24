@@ -7,17 +7,18 @@ import axios from 'axios'
 // Detect "production" via the runtime hostname instead of import.meta.env.PROD
 // — Vite 8's static replacement of that flag has been observed baking the dev
 // default into production bundles. VITE_API_BASE_URL overrides in either case;
-// an explicit empty string is honored (use ??, not ||).
-const IS_LOCAL_DEV =
-  typeof window !== 'undefined' &&
-  (/^localhost(:\d+)?$/.test(window.location.hostname) || window.location.hostname === '127.0.0.1')
-const DEFAULT_BASE_URL = IS_LOCAL_DEV ? 'http://localhost:5000' : ''
+const isDevelopment = import.meta.env.DEV
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL,
+  baseURL: isDevelopment
+    ? (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
+    : '',
   timeout: 15000,
   withCredentials: true,
 })
+
+console.log('API Base URL:', api.defaults.baseURL)
+console.log('Current Origin:', window.location.origin)
 
 // Automatically attach active workspace ID to headers
 api.interceptors.request.use((config) => {

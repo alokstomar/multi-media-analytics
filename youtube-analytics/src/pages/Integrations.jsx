@@ -61,7 +61,7 @@ export default function Integrations() {
   const [platforms, setPlatforms] = useState(INITIAL_PLATFORMS)
 
   // Webhooks states
-  const [incomingUrl] = useState('http://localhost:5000/api/studio/webhooks/incoming/tw_rule_9824')
+  const [incomingUrl] = useState(`${window.location.origin}/api/studio/webhooks/incoming/tw_rule_9824`)
   const [outgoingUrl, setOutgoingUrl] = useState('https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX')
   const [testingOutgoing, setTestingOutgoing] = useState(false)
 

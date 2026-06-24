@@ -396,9 +396,9 @@ export default function WorkspaceSettings() {
                   <p>{inviteMsg}</p>
                   {copiedToken && (
                     <div className="mt-2 flex items-center gap-2">
-                      <code className="text-xs bg-blue-100 px-2 py-1 rounded font-mono break-all">{`http://localhost:5173/accept-invite?token=${copiedToken}`}</code>
+                      <code className="text-xs bg-blue-100 px-2 py-1 rounded font-mono break-all">{`${window.location.origin}/accept-invite?token=${copiedToken}`}</code>
                       <button
-                        onClick={() => copyToClipboard(`http://localhost:5173/accept-invite?token=${copiedToken}`)}
+                        onClick={() => copyToClipboard(`${window.location.origin}/accept-invite?token=${copiedToken}`)}
                         className="p-1.5 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
                       >
                         <Copy className="w-4 h-4" />
