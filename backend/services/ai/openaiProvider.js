@@ -3,6 +3,15 @@ import OpenAI from 'openai'
 import { AIProviderInterface } from './providerInterface.js'
 import AIResponseCache from '../../models/AIResponseCache.js'
 import AIUsageLog from '../../models/AIUsageLog.js'
+import {
+  buildPortfolioContext,
+  getPortfolioSummaryFallback,
+  getAudienceOverlapFallback,
+  getCrossPromotionFallback,
+  getPortfolioContentGapsFallback,
+  getCannibalizationFallback,
+  getPortfolioStrategistFallback
+} from '../../utils/portfolioContext.js'
 
 // ── Per-method cache TTL configuration (hours) ──────────────────────────
 const CACHE_TTL = {
@@ -1035,5 +1044,230 @@ Identify 5 content gaps and 4 niche trends for this channel.`
       userPrompt,
       { temperature: 0.7 }
     )
+  }
+
+  // ── Portfolio Intelligence (multi-channel aggregates) ────────────────
+
+  async getPortfolioSummary(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length === 0) {
+      return { channelsCount: 0, channels: [] }
+    }
+    try {
+      const systemPrompt = `You are a portfolio summarizer. Generate a concise executive summary of a multi-channel YouTube portfolio. Return ONLY valid JSON:
+{
+  "channelsCount": <number>,
+  "channels": [{
+    "id": <string>,
+    "name": <string>,
+    "subscribers": <number>,
+    "totalViews": <number>,
+    "totalVideos": <number>,
+    "healthLabel": "Excellent"|"Good"|"Average"|"Needs Attention",
+    "primaryStrength": <string>,
+    "growthSignal": <string>
+  }],
+  "portfolioStats": {
+    "totalSubscribers": <number>,
+    "totalViews": <number>,
+    "totalVideos": <number>,
+    "avgEngagementRate": <number>,
+    "diversificationScore": <number 0-100>
+  }
+}`
+      const userPrompt = `Summarize this YouTube portfolio:\n\n${JSON.stringify(portfolioCtx, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getPortfolioSummary', params, systemPrompt, userPrompt)
+    } catch (err) {
+      console.warn('[AI OpenAI] getPortfolioSummary call failed, using fallback:', err.message)
+      return getPortfolioSummaryFallback(portfolioCtx)
+    }
+  }
+
+  async getAudienceOverlap(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length < 2) {
+      return { pairs: [], radarData: [] }
+    }
+    try {
+      const systemPrompt = `You are an audience overlap analyst. Estimate pairwise audience overlap, content similarity, demographic match, and collaboration potential between channels in a portfolio. Return ONLY valid JSON:
+{
+  "pairs": [{
+    "channelAId": <string>,
+    "channelAName": <string>,
+    "channelBId": <string>,
+    "channelBName": <string>,
+    "overlap": <number 0-100>,
+    "contentSim": <number 0-100>,
+    "demoMatch": <number 0-100>,
+    "collabPotential": <number 0-100>,
+    "rating": "Outstanding Synergy"|"Strong Potential"|"Moderate Fit"|"Low Synergy",
+    "ratingColor": <tailwind classes>,
+    "recText": <string>
+  }],
+  "radarData": [{ "subject": <axis>, "<ChannelName>": <number 0-100>, ... }]
+}
+Rules:
+- Generate one pair per unique channel combination.
+- radarData axes: "Tech Appeal", "Entertainment Value", "Educational Depth", "Viral Potential", "Subscriber Loyalty", "Global Reach".
+- rating/ratingColor must align with collabPotential: >=80 outstanding (emerald), >=60 strong (blue), >=40 moderate (amber), <40 low (gray).`
+      const userPrompt = `Analyze audience overlap for these channels:\n\n${JSON.stringify(portfolioCtx.channels, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getAudienceOverlap', params, systemPrompt, userPrompt)
+    } catch (err) {
+      console.warn('[AI OpenAI] getAudienceOverlap call failed, using fallback:', err.message)
+      return getAudienceOverlapFallback(portfolioCtx)
+    }
+  }
+
+  async getCrossPromotion(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length < 2) {
+      return { promotions: [] }
+    }
+    try {
+      const systemPrompt = `You are a cross-promotion strategist. Identify high-impact cross-promotion opportunities between channels in a portfolio. Return ONLY valid JSON:
+{
+  "promotions": [{
+    "channelAId": <string>,
+    "channelAName": <string>,
+    "channelBId": <string>,
+    "channelBName": <string>,
+    "opportunity": <string>,
+    "format": "Shoutout"|"Collab Video"|"Shorts Takeover"|"Community Post"|"Livestream",
+    "estimatedLift": "+X%",
+    "effort": "Low"|"Medium"|"High",
+    "priority": "Critical"|"High"|"Medium"|"Low"
+  }]
+}
+Generate 2-5 promotions. Each should be a concrete actionable idea, not generic advice.`
+      const userPrompt = `Recommend cross-promotions for this portfolio:\n\n${JSON.stringify(portfolioCtx.channels, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getCrossPromotion', params, systemPrompt, userPrompt)
+    } catch (err) {
+      console.warn('[AI OpenAI] getCrossPromotion call failed, using fallback:', err.message)
+      return getCrossPromotionFallback(portfolioCtx)
+    }
+  }
+
+  async getPortfolioContentGaps(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length === 0) {
+      return { gaps: [] }
+    }
+    try {
+      const systemPrompt = `You are a content gap analyst. Identify topics that competitors are exploiting but this channel portfolio is NOT covering. Return ONLY valid JSON:
+{
+  "gaps": [{
+    "topic": <string>,
+    "category": <string>,
+    "volume": "<search volume like '140K'>",
+    "growth": "+X%",
+    "difficulty": "Easy"|"Medium"|"Hard",
+    "interest": <number 0-100>,
+    "format": "Long Form"|"Shorts",
+    "viewRange": "<like '1.2M - 2.4M'>",
+    "ctr": "+X%",
+    "opportunityScore": <number 0-100>,
+    "compLevel": "Low"|"Medium"|"High",
+    "diffScore": <number 0-100>,
+    "bestChannelId": <string from input>,
+    "bestChannelName": <string from input>,
+    "confidence": <number>,
+    "roiScore": <number>,
+    "sparkData": [{ "v": <number> }, ...8 points...],
+    "reasons": {
+      "audience": <string>,
+      "search": <string>,
+      "competitor": <string>,
+      "portfolio": <string>
+    }
+  }]
+}
+Generate 4-6 gap opportunities aligned with the portfolio's existing niches.`
+      const userPrompt = `Find content gaps for this portfolio:\n\n${JSON.stringify(portfolioCtx, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getPortfolioContentGaps', params, systemPrompt, userPrompt)
+    } catch (err) {
+      console.warn('[AI OpenAI] getPortfolioContentGaps call failed, using fallback:', err.message)
+      return getPortfolioContentGapsFallback(portfolioCtx)
+    }
+  }
+
+  async getCannibalization(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length < 2) {
+      return { warnings: [] }
+    }
+    try {
+      const systemPrompt = `You are a content cannibalization analyst. Detect channels in the portfolio that compete for the same audience intent, search keywords, or content niche — cannibalizing each other's growth. Return ONLY valid JSON:
+{
+  "warnings": [{
+    "channelAId": <string>,
+    "channelAName": <string>,
+    "channelBId": <string>,
+    "channelBName": <string>,
+    "overlapTopic": <string>,
+    "cannibalizationScore": <number 0-100>,
+    "severity": "Critical"|"High"|"Medium"|"Low",
+    "recommendation": <string>
+  }]
+}
+If no significant cannibalization, return empty warnings array.`
+      const userPrompt = `Detect cannibalization in this portfolio:\n\n${JSON.stringify(portfolioCtx.channels, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getCannibalization', params, systemPrompt, userPrompt)
+    } catch (err) {
+      console.warn('[AI OpenAI] getCannibalization call failed, using fallback:', err.message)
+      return getCannibalizationFallback(portfolioCtx)
+    }
+  }
+
+  async getPortfolioStrategist(ctx = {}, opts = {}) {
+    const portfolioCtx = buildPortfolioContext(ctx.channels)
+    if (portfolioCtx.channels.length === 0) {
+      return {
+        healthScore: 0, stabilityScore: 0, riskLevel: 'Low',
+        riskBadgeColor: 'text-emerald-600 bg-emerald-50 border-emerald-100/50',
+        growthMomentum: '+0%', bestPerformingCh: null, fastestGrowingCh: null,
+        highestEngagementCh: null, highestRevenueCh: null, mostConsistentCh: null,
+        subConcentration: 0, viewConcentration: 0, revenueDependency: 0,
+        audienceDiversification: 0, recommendations: [], actionCenter: [], growthRadar: [],
+      }
+    }
+    try {
+      const systemPrompt = `You are a Chief Strategy Officer for a multi-channel YouTube portfolio. Analyze portfolio health, concentration risk, and growth momentum. Return ONLY valid JSON with this exact structure:
+{
+  "healthScore": <number 0-100>,
+  "stabilityScore": <number 0-100>,
+  "riskLevel": "Low" | "Moderate" | "High",
+  "riskBadgeColor": "text-emerald-600 bg-emerald-50 border-emerald-100/50" | "text-amber-500 bg-amber-50 border-amber-100/50" | "text-red-500 bg-red-50 border-red-100/50",
+  "growthMomentum": "+X%" or "-X%",
+  "bestPerformingCh": { "id": <string>, "name": <string>, "color": "#8B5CF6" },
+  "fastestGrowingCh": { "id": <string>, "name": <string>, "color": "#3B82F6" },
+  "highestEngagementCh": { "id": <string>, "name": <string>, "color": "#10B981" },
+  "highestRevenueCh": { "id": <string>, "name": <string>, "color": "#F59E0B" },
+  "mostConsistentCh": { "id": <string>, "name": <string>, "color": "#8B5CF6" },
+  "subConcentration": <number 0-100>,
+  "viewConcentration": <number 0-100>,
+  "revenueDependency": <number 0-100>,
+  "audienceDiversification": <number 0-100>,
+  "recommendations": [{ "priority": "Critical"|"High Priority"|"Medium Priority"|"Opportunity", "priorityColor": <tailwind classes>, "title": <string>, "desc": <string>, "actionText": <string>, "confidence": <number>, "impact": <string>, "executionTime": <string>, "impactScore": <number>, "channelColor": <hex> }],
+  "actionCenter": [{ "action": <string>, "gain": <string>, "impact": "High"|"Medium"|"Low", "difficulty": "Easy"|"Medium"|"Hard" }],
+  "growthRadar": [{ "topic": <string>, "score": <number>, "growth": "+X%", "comp": "Low"|"Medium"|"High" }]
+}
+Rules:
+- healthScore reflects overall portfolio vitality (0-100).
+- subConcentration = largest channel's subscriber share as % of total.
+- Pick real channel IDs from the input for each "bestPerformingCh" etc.
+- 2-4 recommendations, sorted by impactScore desc.
+- 3-5 actionCenter items, 3-5 growthRadar items.`
+      const userPrompt = `Analyze this YouTube portfolio:\n\n${JSON.stringify(portfolioCtx, null, 2)}`
+      const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
+      return await this._execute('getPortfolioStrategist', params, systemPrompt, userPrompt, { temperature: 0.4 })
+    } catch (err) {
+      console.warn('[AI OpenAI] getPortfolioStrategist call failed, using fallback:', err.message)
+      return getPortfolioStrategistFallback(portfolioCtx)
+    }
   }
 }
