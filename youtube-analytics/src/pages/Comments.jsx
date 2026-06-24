@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, Download, ChevronDown, ChevronRight,
@@ -129,6 +129,30 @@ export default function Comments() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [syncStatus, setSyncStatus] = useState(null) // cache metadata
+  const [autoSyncing, setAutoSyncing] = useState(false) // backend triggered a background sync
+
+  // Backend returns 202 immediately from /refresh and now also triggers a sync
+  // itself on first read of an empty cache. Schedule progressive re-fetches so
+  // the UI fills in once the background sync lands comments in Mongo.
+  const pollRef = useRef(null)
+  const pollAttempts = useRef(0)
+  const fetchDataRef = useRef(null)
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+
+  function scheduleSyncPoll(triggered) {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current)
+      pollRef.current = null
+    }
+    if (triggered && pollAttempts.current < 6) {
+      pollAttempts.current += 1
+      setAutoSyncing(true)
+      pollRef.current = setTimeout(() => fetchDataRef.current?.({ page: 1 }), 5000)
+    } else {
+      pollAttempts.current = 0
+      setAutoSyncing(false)
+    }
+  }
 
   // Auto-select all channels for portfolio mode.
   // Deps are primitives only — `allChannels` is unstable (new array identity every
