@@ -57,6 +57,9 @@ export const authLogin = (payload) =>
 export const authLogout = () =>
   api.post('/api/auth/logout').then((r) => r.data)
 
+export const logoutUser = () =>
+  api.post('/api/auth/logout').then((r) => r.data)
+
 export const authMe = () =>
   api.get('/api/auth/me').then((r) => r.data)
 

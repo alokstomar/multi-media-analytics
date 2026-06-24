@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import api from '../services/api'
+import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import api, { logoutUser } from '../services/api'
 
 const AuthContext = createContext(null)
 
@@ -15,6 +17,9 @@ export function AuthProvider({ children }) {
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   // Fetch current user profile on mount (relies on HttpOnly cookie)
   const fetchMe = useCallback(async () => {
@@ -96,14 +101,22 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await api.post('/api/auth/logout')
-    } catch {
-      // Ignore logout errors
+      await logoutUser()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setUser(null)
+      setActiveWorkspace(null)
+      setWorkspaces([])
+      localStorage.clear()
+      sessionStorage.clear()
+      try {
+        queryClient?.clear?.()
+      } catch (err) {
+        console.error('Failed to clear query client:', err)
+      }
+      navigate('/login', { replace: true })
     }
-    setUser(null)
-    setActiveWorkspace(null)
-    setWorkspaces([])
-    localStorage.removeItem('activeWorkspaceId')
   }
 
   const switchWorkspace = async (workspaceId) => {

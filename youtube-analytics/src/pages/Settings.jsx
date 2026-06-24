@@ -259,7 +259,7 @@ const formatRelativeTime = (dateInput) => {
 
 export default function Settings() {
   const saved = loadSettings()
-  const { user, updateUser } = useAuth()
+  const { user, updateUser, logout } = useAuth()
   const navigate = useNavigate()
 
   const [activeTab, setActiveTab] = useState('profile')
@@ -307,6 +307,7 @@ export default function Settings() {
   const [editDailyBudget, setEditDailyBudget] = useState('')
   const [editMonthlyBudget, setEditMonthlyBudget] = useState('')
   const [savingBudgets, setSavingBudgets] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const fetchAIUsage = async () => {
     setLoadingUsage(true)
@@ -835,17 +836,22 @@ export default function Settings() {
     })
   }
 
-  const handleSignOut = () => {
-    setModal({
-      title: 'Sign Out',
-      desc: 'Are you sure you want to sign out of your account?',
-      confirmLabel: 'Sign Out',
-      danger: false,
-      onConfirm: () => {
-        setModal(null)
-        showToast('Signed out (demo mode)', 'info')
-      },
-    })
+  const handleSignOut = async () => {
+    if (loggingOut) return
+    const confirmed = window.confirm('Are you sure you want to sign out?')
+    if (!confirmed) return
+
+    setLoggingOut(true)
+    setModal(null) // Close all settings modals before redirecting
+    try {
+      await logout()
+      showToast('Signed out successfully')
+    } catch (err) {
+      console.error(err)
+      showToast('Failed to sign out', 'error')
+    } finally {
+      setLoggingOut(false)
+    }
   }
 
   // ── Integration config ────────────────────
@@ -942,7 +948,18 @@ export default function Settings() {
             <div className="border-t border-gray-100 mt-3 pt-3 space-y-1">
               <button onClick={handleExportData} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-all cursor-pointer"><Download className="h-4 w-4" />Export Data</button>
               <button onClick={handleDeleteAccount} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-medium text-red-400 hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer"><Trash2 className="h-4 w-4" />Delete Account</button>
-              <button onClick={handleSignOut} className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-all cursor-pointer"><LogOut className="h-4 w-4" />Sign Out</button>
+              <button
+                onClick={handleSignOut}
+                disabled={loggingOut}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-medium text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loggingOut ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <LogOut className="h-4 w-4" />
+                )}
+                {loggingOut ? 'Signing out...' : 'Sign Out'}
+              </button>
             </div>
           </div>
         </motion.div>
@@ -1061,7 +1078,7 @@ export default function Settings() {
             {/* ═══ NOTIFICATIONS TAB ═══ */}
             {activeTab === 'notifications' && (
               <>
-                <Section title="Notification Channels" desc="Choose how you receive notifications.">
+                <Section title="Notification Channels (Coming Soon)" desc="Choose how you receive notifications.">
                   <div className="space-y-4">
                     {[
                       { key: 'email', label: 'Email Notifications', desc: 'Receive alerts via email', icon: Mail },
