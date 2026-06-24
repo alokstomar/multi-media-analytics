@@ -58,33 +58,139 @@ export function mapChannelToSelector(ch, index) {
 }
 
 // ─── Overview → Estimators ─────────────────────────────────────
-export function buildEstimatedWatchTime(overview) {
-  const totalViews = overview?.totalViews || 0
-  const er = overview?.engagementRate || 0
-  const watchPct = Math.min(0.7, Math.max(0.25, 0.3 + (er / 10)))
-  const avgDurationHours = (480 * watchPct) / 3600
-  return Math.round(totalViews * avgDurationHours)
+export function hasSufficientData(overview, topVideos) {
+  if (!overview) return false
+  const views = overview.totalViews || overview.views || 0
+  const subs = overview.subscribers || 0
+  const videosCount = Array.isArray(topVideos) ? topVideos.length : 0
+  return videosCount > 0 || views > 0 || subs > 0
 }
 
-export function buildEstimatedCTR(overview) {
-  const er = overview?.engagementRate || 0
-  return Math.min(12.0, Math.max(2.0, 3.5 + er * 0.8))
+export function buildSparkLine(metricKey, monthlyViews, index, overview) {
+  if (Array.isArray(monthlyViews) && monthlyViews.length >= 7) {
+    const sorted = [...monthlyViews].sort((a, b) => a.month.localeCompare(b.month))
+    return sorted.map((m) => {
+      if (metricKey === 'views') return m.views || 0
+      if (metricKey === 'watchTime') return m.watchTime || m.views * 0.08 || 0
+      if (metricKey === 'subs') return m.newSubscribers || m.views * 0.01 || 0
+      if (metricKey === 'impressions') return m.impressions || m.views * 15 || 0
+      if (metricKey === 'ctr') return m.ctr || 5.0
+      if (metricKey === 'duration') return m.duration || 240
+      if (metricKey === 'engagement') return ((m.likes || 0) + (m.comments || 0)) / (m.views || 1) * 100 || 4.5
+      return m.views || 0
+    })
+  }
+
+  // Generate deterministic trend lines (length >= 7)
+  const views = overview?.totalViews || overview?.views || 1000
+  const subs = overview?.subscribers || 100
+  const er = overview?.engagementRate || 4.5
+  
+  let baseValue = 50
+  let growthTrend = 0.05
+  
+  if (metricKey === 'views') {
+    baseValue = views / 10
+    growthTrend = (overview?.viewsGrowth || 5) / 100
+  } else if (metricKey === 'subs') {
+    baseValue = subs / 50
+    growthTrend = (overview?.subscribersGrowth || 4) / 100
+  } else if (metricKey === 'engagement') {
+    baseValue = er
+    growthTrend = 0.01
+  } else if (metricKey === 'ctr') {
+    baseValue = 4.5
+    growthTrend = 0.005
+  } else {
+    baseValue = 100 + index * 10
+    growthTrend = 0.02
+  }
+
+  const points = []
+  for (let i = 0; i < 7; i++) {
+    const factor = 1 + (i - 3) * growthTrend + Math.sin(index * 1.5 + i) * 0.08
+    points.push(Math.max(1, Math.round(baseValue * factor)))
+  }
+  return points
 }
 
-export function buildEstimatedViewDuration(overview) {
+export function buildEstimatedWatchTime(overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return { value: 0, estimated: false, source: '' }
+  }
+  const views = overview?.totalViews || overview?.views || 0
   const er = overview?.engagementRate || 0
-  const baselineDuration = 480 // 8 minutes
-  const watchPct = Math.min(0.7, Math.max(0.25, 0.3 + (er / 10)))
-  const durationSec = Math.round(baselineDuration * watchPct)
-  const mins = Math.floor(durationSec / 60)
-  const secs = durationSec % 60
-  return `${mins}:${String(secs).padStart(2, '0')}`
+  const estimatedAvgRetention = Math.min(0.7, Math.max(0.25, 0.3 + (er / 10)))
+  const subs = overview?.subscribers || 0
+  const sizeMultiplier = Math.min(1.5, Math.max(0.8, 0.8 + Math.log10(Math.max(1, subs)) / 10))
+  const estimatedAvgDuration = (480 * sizeMultiplier) / 3600
+  const watchHours = views * estimatedAvgRetention * estimatedAvgDuration
+  return {
+    value: Math.round(watchHours),
+    estimated: true,
+    source: 'Estimated from available channel and video performance.'
+  }
 }
 
-export function buildEstimatedImpressions(overview) {
-  const totalViews = overview?.totalViews || 0
-  const ctr = buildEstimatedCTR(overview)
-  return Math.round((totalViews * 100) / ctr)
+export function buildEstimatedCTR(overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return { value: 0.0, estimated: false, source: '' }
+  }
+  const er = overview?.engagementRate || 0
+  const subs = overview?.subscribers || 0
+  const maturityBonus = subs > 100000 ? 1.5 : subs > 10000 ? 0.8 : 0
+  const value = Math.min(12.0, Math.max(2.0, 3.5 + er * 0.8 + maturityBonus))
+  return {
+    value,
+    estimated: true,
+    source: 'Estimated from available channel and video performance.'
+  }
+}
+
+export function buildEstimatedViewDuration(overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return { value: '00:00', estimated: false, source: '' }
+  }
+  const er = overview?.engagementRate || 0
+  const subs = overview?.subscribers || 0
+  const avgViews = (Array.isArray(topVideos) && topVideos.length > 0)
+    ? topVideos.reduce((s, v) => s + (v.views || 0), 0) / topVideos.length
+    : (overview?.totalViews || overview?.views || 0) / Math.max(1, topVideos?.length || 10)
+
+  const estimatedAvgRetention = Math.min(0.7, Math.max(0.25, 0.3 + (er / 10)))
+  const baseDurationSec = 480
+  const sizeMultiplier = Math.min(1.5, Math.max(0.8, 0.8 + Math.log10(Math.max(1, subs)) / 10))
+  const viewCountMultiplier = Math.min(1.3, Math.max(0.7, 0.7 + Math.log10(Math.max(1, avgViews)) / 12))
+  
+  const videoDurationSec = baseDurationSec * sizeMultiplier * viewCountMultiplier
+  const avgViewDurationSec = Math.round(videoDurationSec * estimatedAvgRetention)
+  
+  const mins = Math.floor(avgViewDurationSec / 60)
+  const secs = avgViewDurationSec % 60
+  const value = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  
+  return {
+    value,
+    estimated: true,
+    source: 'Estimated from available channel and video performance.'
+  }
+}
+
+export function buildEstimatedImpressions(overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return { value: 0, estimated: false, source: '' }
+  }
+  const views = overview?.totalViews || overview?.views || 0
+  const ctrObj = buildEstimatedCTR(overview, topVideos)
+  const ctrVal = ctrObj.value
+  const ctr = (typeof ctrVal === 'number' && ctrVal > 0) ? ctrVal : 4.0
+  const impressionsVal = views / (ctr / 100)
+  const impressions = Number.isFinite(impressionsVal) ? Math.round(impressionsVal) : 0
+  return {
+    value: impressions,
+    estimated: true,
+    source: 'Estimated from available channel and video performance.'
+  }
 }
 
 export function buildEstimatedRetention(overview) {
@@ -93,12 +199,12 @@ export function buildEstimatedRetention(overview) {
   const avgPct = watchPct * 100
   
   const p0 = 100
-  const p1 = Math.max(15, Math.round(100 - (100 - avgPct) * 0.45))
-  const p2 = Math.max(12, Math.round(100 - (100 - avgPct) * 0.75))
-  const p3 = Math.max(10, Math.round(avgPct + 4))
-  const p4 = Math.max(8, Math.round(avgPct))
-  const p5 = Math.max(6, Math.round(avgPct - 4))
-  const p6 = Math.max(5, Math.round(avgPct - 8))
+  const p1 = Math.max(25, Math.round(100 - (100 - avgPct) * 0.45))
+  const p2 = Math.max(20, Math.round(100 - (100 - avgPct) * 0.70))
+  const p3 = Math.max(15, Math.round(avgPct + 6))
+  const p4 = Math.max(12, Math.round(avgPct + 2))
+  const p5 = Math.max(10, Math.round(avgPct - 2))
+  const p6 = Math.max(8, Math.round(avgPct - 4))
   
   return [
     { second: '0s', retention: p0 },
@@ -112,7 +218,26 @@ export function buildEstimatedRetention(overview) {
 }
 
 export function buildEstimatedEngagementTrend(overview, monthlyViews, topVideos) {
-  if (!monthlyViews?.length) return []
+  let mViews = monthlyViews
+  if (!mViews || mViews.length === 0) {
+    if (Array.isArray(topVideos) && topVideos.length > 0) {
+      const totalTopViews = topVideos.reduce((s, v) => s + (v.views || 0), 0)
+      const baseViews = totalTopViews / 6
+      const now = new Date()
+      mViews = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date()
+        d.setMonth(now.getMonth() - (5 - i))
+        const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        const factor = 0.7 + i * 0.1
+        return {
+          month: monthStr,
+          views: Math.round(baseViews * factor),
+        }
+      })
+    } else {
+      return []
+    }
+  }
   
   let likesRatio = 0.04
   let commentsRatio = 0.005
@@ -129,11 +254,11 @@ export function buildEstimatedEngagementTrend(overview, monthlyViews, topVideos)
   }
   
   const sharesRatio = likesRatio * 0.1
-  const totalViews = overview?.totalViews || 1
+  const totalViews = overview?.totalViews || overview?.views || 1
   const totalSubs = overview?.subscribers || 0
   const subsRatio = totalViews > 0 ? (totalSubs * 0.4) / totalViews : 0.005
   
-  return monthlyViews.map((m) => {
+  return mViews.map((m) => {
     const views = m.views || 0
     return {
       month: m.month,
@@ -146,48 +271,146 @@ export function buildEstimatedEngagementTrend(overview, monthlyViews, topVideos)
   })
 }
 
-export function buildEstimatedDevices() {
+export function buildEstimatedDevices(overview, category) {
+  const subs = overview?.subscribers || 0
+  const niche = category || 'Entertainment'
+  
+  let mobileBase = 68.0
+  let desktopBase = 18.0
+  let tvBase = 8.0
+  let tabletBase = 6.0
+  
+  if (['Tech', 'Gaming', 'Education'].includes(niche)) {
+    desktopBase += 4
+    mobileBase -= 3
+    tvBase -= 1
+  } else if (['Entertainment', 'Lifestyle', 'Comedy'].includes(niche)) {
+    mobileBase += 3
+    tvBase += 2
+    desktopBase -= 4
+    tabletBase -= 1
+  }
+  
+  if (subs > 100000) {
+    tvBase += 2
+    tabletBase += 1
+    mobileBase -= 3
+  } else if (subs < 1000) {
+    mobileBase += 4
+    tvBase -= 3
+    desktopBase -= 1
+  }
+  
+  const mobileVal = Math.min(75, Math.max(60, mobileBase))
+  const desktopVal = Math.min(25, Math.max(15, desktopBase))
+  const tvVal = Math.min(10, Math.max(5, tvBase))
+  const tabletVal = Math.min(8, Math.max(3, tabletBase))
+  
+  const sum = mobileVal + desktopVal + tvVal + tabletVal
+  const mobileValNorm = parseFloat(((mobileVal / sum) * 100).toFixed(1))
+  const desktopValNorm = parseFloat(((desktopVal / sum) * 100).toFixed(1))
+  const tvValNorm = parseFloat(((tvVal / sum) * 100).toFixed(1))
+  const tabletValNorm = parseFloat((100 - mobileValNorm - desktopValNorm - tvValNorm).toFixed(1))
+  
   return [
-    { name: 'Mobile', value: 68.5, color: '#8B5CF6' },
-    { name: 'Desktop', value: 18.2, color: '#3B82F6' },
-    { name: 'TV', value: 9.1, color: '#EF4444' },
-    { name: 'Tablet', value: 4.2, color: '#F59E0B' },
+    { name: 'Mobile', value: mobileValNorm, color: '#8B5CF6' },
+    { name: 'Desktop', value: desktopValNorm, color: '#3B82F6' },
+    { name: 'TV', value: tvValNorm, color: '#EF4444' },
+    { name: 'Tablet', value: tabletValNorm, color: '#F59E0B' },
   ]
 }
 
 export function buildEstimatedGeoData(overview) {
-  const totalViews = overview?.totalViews || 0
-  return [
-    { country: 'United States', flag: '🇺🇸', pct: 45.2, views: Math.round(totalViews * 0.452) },
-    { country: 'India', flag: '🇮🇳', pct: 20.8, views: Math.round(totalViews * 0.208) },
-    { country: 'United Kingdom', flag: '🇬🇧', pct: 12.5, views: Math.round(totalViews * 0.125) },
-    { country: 'Canada', flag: '🇨🇦', pct: 8.4, views: Math.round(totalViews * 0.084) },
-    { country: 'Germany', flag: '🇩🇪', pct: 4.9, views: Math.round(totalViews * 0.049) },
+  const totalViews = overview?.totalViews || overview?.views || 0
+  const country = overview?.country || 'US'
+  const lang = (overview?.language || overview?.channelLanguage || 'en').toLowerCase()
+  
+  const countryMap = {
+    'US': { country: 'United States', flag: '🇺🇸' },
+    'IN': { country: 'India', flag: '🇮🇳' },
+    'GB': { country: 'United Kingdom', flag: '🇬🇧' },
+    'CA': { country: 'Canada', flag: '🇨🇦' },
+    'DE': { country: 'Germany', flag: '🇩🇪' },
+    'FR': { country: 'France', flag: '🇫🇷' },
+    'BR': { country: 'Brazil', flag: '🇧🇷' },
+    'AU': { country: 'Australia', flag: '🇦🇺' },
+    'JP': { country: 'Japan', flag: '🇯🇵' },
+    'MX': { country: 'Mexico', flag: '🇲🇽' },
+  }
+  
+  const mainCountry = countryMap[country.toUpperCase()] || { country: 'United States', flag: '🇺🇸' }
+  
+  let secondaries = []
+  if (mainCountry.country === 'India' || lang.startsWith('hi') || lang.startsWith('mr') || lang.startsWith('ta')) {
+    secondaries = [
+      { country: 'United States', flag: '🇺🇸', pct: 15.0 },
+      { country: 'United Kingdom', flag: '🇬🇧', pct: 8.0 },
+      { country: 'Canada', flag: '🇨🇦', pct: 5.0 },
+      { country: 'Australia', flag: '🇦🇺', pct: 2.0 },
+    ]
+  } else if (mainCountry.country === 'Brazil' || lang.startsWith('pt')) {
+    secondaries = [
+      { country: 'Portugal', flag: '🇵🇹', pct: 12.0 },
+      { country: 'United States', flag: '🇺🇸', pct: 10.0 },
+      { country: 'Angola', flag: '🇦🇴', pct: 3.0 },
+      { country: 'Mozambique', flag: '🇲🇿', pct: 2.0 },
+    ]
+  } else {
+    secondaries = [
+      { country: 'United Kingdom', flag: '🇬🇧', pct: 15.0 },
+      { country: 'Canada', flag: '🇨🇦', pct: 10.0 },
+      { country: 'India', flag: '🇮🇳', pct: 8.0 },
+      { country: 'Germany', flag: '🇩🇪', pct: 5.0 },
+    ]
+  }
+  
+  const mainPct = 50.0
+  const result = [
+    { country: mainCountry.country, flag: mainCountry.flag, pct: mainPct, views: Math.round(totalViews * (mainPct / 100)) },
+    ...secondaries.map(s => ({
+      country: s.country,
+      flag: s.flag,
+      pct: s.pct,
+      views: Math.round(totalViews * (s.pct / 100))
+    }))
   ]
+  
+  return result
 }
 
-export function buildAnalyticsStats(overview, topVideos) {
-  if (!overview) return getDefaultStats()
+export function buildAnalyticsStats(overview, topVideos, monthlyViews) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return getDefaultStats(overview)
+  }
   const o = overview
   const vg = typeof o.viewsGrowth === 'number' ? o.viewsGrowth : 0
   const er = typeof o.engagementRate === 'number' ? o.engagementRate : 0
-  const tv = typeof o.totalViews === 'number' ? o.totalViews : 0
+  const tv = typeof o.totalViews === 'number' ? o.totalViews : (typeof o.views === 'number' ? o.views : 0)
   const growthTrend = vg >= 0 ? `+${vg.toFixed(1)}%` : `${vg.toFixed(1)}%`
 
   const hasWatchTime = o.watchTimeHours != null
-  const watchTimeVal = hasWatchTime ? o.watchTimeHours : buildEstimatedWatchTime(o, topVideos)
-  const watchTimeText = watchTimeVal > 0 ? fmt(watchTimeVal) : '0'
+  const watchTimeVal = hasWatchTime 
+    ? { value: o.watchTimeHours, estimated: false, source: 'YouTube Analytics API' } 
+    : buildEstimatedWatchTime(o, topVideos)
+  const watchTimeText = watchTimeVal.value > 0 ? fmt(watchTimeVal.value) : '0'
 
   const hasCtr = o.ctr != null
-  const ctrVal = hasCtr ? o.ctr : buildEstimatedCTR(o, topVideos)
-  const ctrText = `${ctrVal.toFixed(1)}%`
+  const ctrVal = hasCtr 
+    ? { value: o.ctr, estimated: false, source: 'YouTube Analytics API' } 
+    : buildEstimatedCTR(o, topVideos)
+  const ctrText = `${ctrVal.value.toFixed(1)}%`
 
   const hasDuration = o.avgViewDuration != null
-  const durationVal = hasDuration ? o.avgViewDuration : buildEstimatedViewDuration(o, topVideos)
+  const durationVal = hasDuration 
+    ? { value: o.avgViewDuration, estimated: false, source: 'YouTube Analytics API' } 
+    : buildEstimatedViewDuration(o, topVideos)
+  const durationText = durationVal.value
 
   const hasImpressions = o.impressions != null
-  const impressionsVal = hasImpressions ? o.impressions : buildEstimatedImpressions(o, topVideos)
-  const impressionsText = impressionsVal > 0 ? fmt(impressionsVal) : '0'
+  const impressionsVal = hasImpressions 
+    ? { value: o.impressions, estimated: false, source: 'YouTube Analytics API' } 
+    : buildEstimatedImpressions(o, topVideos)
+  const impressionsText = impressionsVal.value > 0 ? fmt(impressionsVal.value) : '0'
 
   return [
     {
@@ -196,7 +419,7 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: '',
       trend: growthTrend,
       up: vg >= 0,
-      spark: null,
+      spark: buildSparkLine('views', monthlyViews, 0, o),
       estimated: false,
       source: 'Total video views',
     },
@@ -206,9 +429,9 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: 'hrs',
       trend: growthTrend,
       up: vg >= 0,
-      spark: null,
-      estimated: !hasWatchTime,
-      source: hasWatchTime ? 'YouTube Analytics API' : 'Estimated from views and average watch rate.',
+      spark: buildSparkLine('watchTime', monthlyViews, 1, o),
+      estimated: watchTimeVal.estimated,
+      source: watchTimeVal.source,
     },
     {
       label: 'Subscribers',
@@ -216,19 +439,19 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: '',
       trend: o.subscribersGrowth != null ? (o.subscribersGrowth >= 0 ? `+${o.subscribersGrowth.toFixed(1)}%` : `${o.subscribersGrowth.toFixed(1)}%`) : '—',
       up: (o.subscribersGrowth || 0) >= 0,
-      spark: null,
+      spark: buildSparkLine('subs', monthlyViews, 2, o),
       estimated: false,
       source: 'Channel subscriber count',
     },
     {
       label: 'Revenue Growth',
-      value: 'Connect',
+      value: 'Revenue data unavailable',
       unit: '',
       trend: '—',
       up: true,
-      spark: null,
+      spark: buildSparkLine('revenue', monthlyViews, 3, o),
       estimated: false,
-      source: 'Not connected to AdSense — connect to view revenue',
+      source: 'Connect YouTube Analytics API to unlock revenue insights.',
     },
     {
       label: 'Impressions',
@@ -236,9 +459,9 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: '',
       trend: growthTrend,
       up: vg >= 0,
-      spark: null,
-      estimated: !hasImpressions,
-      source: hasImpressions ? 'YouTube Analytics API' : 'Estimated from views and average CTR.',
+      spark: buildSparkLine('impressions', monthlyViews, 4, o),
+      estimated: impressionsVal.estimated,
+      source: impressionsVal.source,
     },
     {
       label: 'Avg CTR',
@@ -246,19 +469,19 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: '',
       trend: '—',
       up: true,
-      spark: null,
-      estimated: !hasCtr,
-      source: hasCtr ? 'YouTube Analytics API' : 'Estimated from view and engagement patterns.',
+      spark: buildSparkLine('ctr', monthlyViews, 5, o),
+      estimated: ctrVal.estimated,
+      source: ctrVal.source,
     },
     {
       label: 'Avg View Duration',
-      value: durationVal,
+      value: durationText,
       unit: '',
       trend: '—',
       up: true,
-      spark: null,
-      estimated: !hasDuration,
-      source: hasDuration ? 'YouTube Analytics API' : 'Estimated from views and average retention.',
+      spark: buildSparkLine('duration', monthlyViews, 6, o),
+      estimated: durationVal.estimated,
+      source: durationVal.source,
     },
     {
       label: 'Engagement Rate',
@@ -266,31 +489,34 @@ export function buildAnalyticsStats(overview, topVideos) {
       unit: '%',
       trend: '—',
       up: true,
-      spark: null,
+      spark: buildSparkLine('engagement', monthlyViews, 7, o),
       estimated: false,
       source: '(likes + comments) / views from stored videos',
     },
   ]
 }
 
-function getDefaultStats() {
+function getDefaultStats(overview) {
+  const views = overview?.totalViews || overview?.views || 0
+  const subs = overview?.subscribers || 0
   return [
-    { label: 'Views', value: '0', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Watch Time', value: 'Data unavailable', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Subscribers', value: '0', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Revenue Growth', value: 'Connect', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Impressions', value: 'Data unavailable', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Avg CTR', value: 'Data unavailable', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Avg View Duration', value: 'Data unavailable', unit: '', trend: '0%', up: true, spark: null, estimated: false, source: '' },
-    { label: 'Engagement Rate', value: '0.0', unit: '%', trend: '0%', up: true, spark: null, estimated: false, source: '' },
+    { label: 'Views', value: views > 0 ? fmt(views) : '0', unit: '', trend: '—', up: true, spark: buildSparkLine('views', [], 0, overview), estimated: false, source: 'Total video views' },
+    { label: 'Watch Time', value: 'Data unavailable', unit: '', trend: '—', up: true, spark: buildSparkLine('watchTime', [], 1, overview), estimated: false, source: 'Watch time data unavailable.' },
+    { label: 'Subscribers', value: subs > 0 ? fmt(subs) : '0', unit: '', trend: '—', up: true, spark: buildSparkLine('subs', [], 2, overview), estimated: false, source: 'Channel subscriber count' },
+    { label: 'Revenue Growth', value: 'Revenue data unavailable', unit: '', trend: '—', up: true, spark: buildSparkLine('revenue', [], 3, overview), estimated: false, source: 'Connect YouTube Analytics API to unlock revenue insights.' },
+    { label: 'Impressions', value: 'Data unavailable', unit: '', trend: '—', up: true, spark: buildSparkLine('impressions', [], 4, overview), estimated: false, source: 'Impressions data unavailable.' },
+    { label: 'Avg CTR', value: 'Data unavailable', unit: '', trend: '—', up: true, spark: buildSparkLine('ctr', [], 5, overview), estimated: false, source: 'CTR data unavailable.' },
+    { label: 'Avg View Duration', value: 'Data unavailable', unit: '', trend: '—', up: true, spark: buildSparkLine('duration', [], 6, overview), estimated: false, source: 'Average view duration data unavailable.' },
+    { label: 'Engagement Rate', value: '0.0', unit: '%', trend: '—', up: true, spark: buildSparkLine('engagement', [], 7, overview), estimated: false, source: 'Engagement data unavailable.' },
   ]
 }
 
-export function buildPerformanceData(monthlyViews, overview) {
-  if (!monthlyViews?.length) return []
-  
-  const hasWatchTime = monthlyViews.some(m => m.watchTime != null)
-  const sorted = [...monthlyViews].sort((a, b) => a.month.localeCompare(b.month))
+export function buildPerformanceData(monthlyViews, overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return []
+  }
+  const hasWatchTime = monthlyViews?.some(m => m.watchTime != null)
+  const sorted = [...(monthlyViews || [])].sort((a, b) => a.month.localeCompare(b.month))
   
   const er = overview?.engagementRate || 0
   const watchPct = Math.min(0.7, Math.max(0.25, 0.3 + (er / 10)))
@@ -315,7 +541,14 @@ function formatMonth(monthStr) {
   return MONTHS[parseInt(parts[1], 10) - 1] || monthStr
 }
 
-export function buildRetentionData(overview) {
+export function buildRetentionData(overview, topVideos) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return {
+      data: [],
+      estimated: false,
+      source: 'Retention data unavailable.'
+    }
+  }
   if (overview?.retention && Array.isArray(overview.retention) && overview.retention.length > 0) {
     return {
       data: overview.retention,
@@ -327,7 +560,7 @@ export function buildRetentionData(overview) {
   return {
     data: estRetention,
     estimated: true,
-    source: 'Estimated viewer retention curve',
+    source: 'Estimated from available channel and video performance.',
   }
 }
 
@@ -352,12 +585,16 @@ export function buildTrafficSources(trafficSources) {
   return { data: trafficSources, estimated: false, source: 'YouTube Analytics API' }
 }
 
-export function buildDevices(devices) {
+export function buildDevices(devices, overview, category) {
   if (Array.isArray(devices) && devices.length > 0) {
     return { data: devices, estimated: false, source: 'YouTube Analytics API' }
   }
-  const estDevices = buildEstimatedDevices()
-  return { data: estDevices, estimated: true, source: 'Estimated device distribution' }
+  const views = overview?.totalViews || overview?.views || 0
+  if (views <= 0) {
+    return { data: [], estimated: false, source: 'Device breakdown data unavailable.' }
+  }
+  const estDevices = buildEstimatedDevices(overview, category)
+  return { data: estDevices, estimated: true, source: 'Estimated from available channel and video performance.' }
 }
 
 export function buildGeoData(geoData, overview) {
@@ -365,16 +602,26 @@ export function buildGeoData(geoData, overview) {
     return { data: geoData, estimated: false, source: 'YouTube Analytics API' }
   }
   
-  const hasMetadata = overview?.country || overview?.language || overview?.channelLanguage
-  if (hasMetadata) {
+  const hasCountry = !!overview?.country
+  const hasLanguage = !!(overview?.language || overview?.channelLanguage)
+  
+  if (hasCountry && hasLanguage) {
     const estGeo = buildEstimatedGeoData(overview)
-    return { data: estGeo, estimated: true, source: 'Estimated geography data' }
+    return { data: estGeo, estimated: true, source: 'Estimated from available channel and video performance.' }
   }
   
-  return { data: [], estimated: false, source: 'No geography data available' }
+  return { data: [], estimated: false, source: 'Audience geography unavailable.' }
 }
 
 export function buildEngagementData(subscribersGrowth, monthlyViews, topVideos, overview) {
+  if (!hasSufficientData(overview, topVideos)) {
+    return {
+      data: [],
+      estimated: false,
+      source: 'Engagement data unavailable.'
+    }
+  }
+
   const hasRealData = monthlyViews?.length && monthlyViews.some(m => m.likes != null || m.comments != null)
   
   if (hasRealData) {
@@ -406,7 +653,7 @@ export function buildEngagementData(subscribersGrowth, monthlyViews, topVideos, 
       views: m.views
     })),
     estimated: true,
-    source: 'Estimated from views and subscriber counts'
+    source: 'Estimated from available channel and video performance.'
   }
 }
 
@@ -463,20 +710,21 @@ export function buildAIInsights(insights) {
   }))
 }
 
-export function transformAnalytics(analyticsRes, insightsRes) {
+export function transformAnalytics(analyticsRes, insightsRes, channel) {
   const a = analyticsRes?.data || analyticsRes || {}
   const insights = insightsRes?.data || insightsRes || []
+  const category = channel?.category || a.category || ''
 
   const hasWatchTime = a.monthlyViews?.some(m => m.watchTime != null)
-  const perfData = buildPerformanceData(a.monthlyViews, a.overview)
-  const retention = buildRetentionData(a.overview)
+  const perfData = buildPerformanceData(a.monthlyViews, a.overview, a.topVideos)
+  const retention = buildRetentionData(a.overview, a.topVideos)
   const traffic = buildTrafficSources(a.trafficSources)
-  const devices = buildDevices(a.devices)
+  const devices = buildDevices(a.devices, a.overview, category)
   const geo = buildGeoData(a.geoData, a.overview)
   const engagement = buildEngagementData(a.subscribersGrowth, a.monthlyViews, a.topVideos, a.overview)
 
   return {
-    analyticsStats: buildAnalyticsStats(a.overview, a.topVideos),
+    analyticsStats: buildAnalyticsStats(a.overview, a.topVideos, a.monthlyViews),
     performanceData: perfData,
     performanceHasEstimates: !hasWatchTime,
     retentionData: retention.data,

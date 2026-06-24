@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { Clock, AlertTriangle, Lightbulb, BarChart3 } from 'lucide-react'
@@ -14,22 +15,29 @@ const insightStyles = {
   green:  { bg: 'bg-emerald-50/80', border: 'border-emerald-100', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', title: 'text-emerald-800', dot: 'bg-emerald-400' },
 }
 
-export default function RetentionSection({ data, insights, estimated }) {
+export default function RetentionSection({ data, insights, estimated, videoCount }) {
   const retentionData = Array.isArray(data) ? data : []
   const insightCards = Array.isArray(insights) ? insights : []
 
-  const avgRetention = retentionData.length
-    ? Math.round(retentionData.reduce((s, d) => s + (d.retention || 0), 0) / retentionData.length)
-    : 0
+  const showEmpty = videoCount === 0
 
-  let maxDrop = 0
-  let dropIdx = 1
-  retentionData.forEach((d, i) => {
-    if (i > 0 && typeof retentionData[i - 1].retention === 'number' && typeof d.retention === 'number') {
-      const drop = retentionData[i - 1].retention - d.retention
-      if (drop > maxDrop) { maxDrop = drop; dropIdx = i }
-    }
-  })
+  const avgRetention = useMemo(() => {
+    return retentionData.length
+      ? Math.round(retentionData.reduce((s, d) => s + (d.retention || 0), 0) / retentionData.length)
+      : 0
+  }, [retentionData])
+
+  const { maxDrop, dropIdx } = useMemo(() => {
+    let maxDrop = 0
+    let dropIdx = 1
+    retentionData.forEach((d, i) => {
+      if (i > 0 && typeof retentionData[i - 1].retention === 'number' && typeof d.retention === 'number') {
+        const drop = retentionData[i - 1].retention - d.retention
+        if (drop > maxDrop) { maxDrop = drop; dropIdx = i }
+      }
+    })
+    return { maxDrop, dropIdx }
+  }, [retentionData])
 
   return (
     <motion.div
@@ -56,10 +64,10 @@ export default function RetentionSection({ data, insights, estimated }) {
         </div>
 
         <div className="mt-4">
-          {retentionData.length === 0 ? (
+          {showEmpty ? (
             <EmptyState
               title="No retention data available"
-              description="No retention data available. Connect YouTube Analytics API or add videos to view the retention curve."
+              description="Connect YouTube Analytics API or add videos to view the retention curve."
               icon={Clock}
               compact={true}
             />
@@ -120,9 +128,12 @@ export default function RetentionSection({ data, insights, estimated }) {
 
         <div className="flex-1 space-y-2.5">
           {insightCards.length === 0 ? (
-            <div className="py-10 text-center rounded-xl border border-dashed border-gray-100">
-              <p className="text-xs font-bold text-gray-500">No AI insights available</p>
-              <p className="text-[11px] text-gray-400 mt-1">Insights appear when engagement data is connected</p>
+            <div className="rounded-xl border border-dashed border-gray-100">
+              <EmptyState
+                title="No AI insights available"
+                description="Insights appear when engagement data is connected."
+                compact={true}
+              />
             </div>
           ) : (
             insightCards.map((card, i) => {

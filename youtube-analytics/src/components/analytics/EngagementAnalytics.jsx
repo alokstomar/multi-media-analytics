@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fmt } from '../../utils/format'
@@ -13,17 +13,20 @@ const tabs = [
   { key: 'subs', label: 'Subs Gained', color: '#8B5CF6' },
 ]
 
-export default function EngagementAnalytics({ data, estimated }) {
+export default function EngagementAnalytics({ data, estimated, topVideos = [] }) {
   const [active, setActive] = useState('likes')
   const rawData = Array.isArray(data) ? data : []
   const t = tabs.find((x) => x.key === active) || tabs[0]
 
-  const isInRange = (row) => {
-    if (!row || !row.date) return false
-    return true
-  }
-  const engData = rawData.filter(isInRange)
-  const hasData = engData.length > 0
+  const engData = useMemo(() => {
+    const isInRange = (row) => {
+      if (!row || !row.date) return false
+      return true
+    }
+    return rawData.filter(isInRange)
+  }, [rawData])
+  const hasVideos = Array.isArray(topVideos) && topVideos.length > 0
+  const showEmpty = !hasVideos
 
   return (
     <motion.div
@@ -64,7 +67,7 @@ export default function EngagementAnalytics({ data, estimated }) {
         </div>
       </div>
 
-      {!hasData ? (
+      {showEmpty ? (
         <EmptyState
           title="No engagement data available"
           description="Connect YouTube Analytics API or add videos to enable engagement trends."

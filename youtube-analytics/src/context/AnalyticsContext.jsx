@@ -183,7 +183,8 @@ export function AnalyticsProvider({ children }) {
       ])
       const a = analyticsRes.status === 'fulfilled' ? analyticsRes.value : null
       const ins = insightsRes.status === 'fulfilled' ? insightsRes.value : []
-      setChannelData(transformAnalytics(a, ins))
+      const activeCh = allChannelsRef.current.find((c) => c.id === channelId)
+      setChannelData(transformAnalytics(a, ins, activeCh))
     } catch {
       setChannelData(getEmptyData())
     }

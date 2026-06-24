@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { ArrowUpDown, TrendingUp, Flame, Rocket, Minus, Play } from 'lucide-react'
 import { usePlatform } from '../../hooks/usePlatform'
+import EmptyState from '../ui/EmptyState'
 
 const badgeMap = {
   Viral: { bg: 'bg-red-50 text-red-600', icon: Flame, dot: 'bg-red-400' },
@@ -43,10 +44,10 @@ export default function VideoPerformanceTable({ data, contentLabel }) {
       </div>
 
       {videos.length === 0 ? (
-        <div className="px-5 py-12 text-center">
-          <p className="text-sm font-bold text-gray-500">No {label.toLowerCase()} data available</p>
-          <p className="text-xs text-gray-400 mt-1">Videos will appear here once the channel has uploaded content</p>
-        </div>
+        <EmptyState
+          title={`No ${label.toLowerCase()} data available`}
+          description="Videos will appear here once the channel has uploaded content."
+        />
       ) : (
         <>
           {/* Sticky table header */}

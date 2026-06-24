@@ -243,6 +243,7 @@ export default function Analytics() {
                 data={analyticsData?.retentionData}
                 insights={analyticsData?.retentionInsights}
                 estimated={analyticsData?.retentionEstimated}
+                videoCount={analyticsData?.videoTable?.length}
               />
             )}
 
@@ -260,6 +261,7 @@ export default function Analytics() {
               data={analyticsData?.engagementData}
               range={range}
               estimated={analyticsData?.engagementEstimated}
+              topVideos={analyticsData?._raw?.topVideos}
             />
 
             {/* ── Video Table + AI Panel ───────────────────────── */}

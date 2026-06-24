@@ -35,7 +35,6 @@ export async function getAnalytics(req, res, next) {
     if (!channel) throw new AppError('Channel not found', 404)
 
     const videos = await Video.find({ channelId: id }).sort({ publishedAt: -1 })
-    if (!videos.length) throw new AppError('No videos found for this channel', 404)
 
     const analytics = generateAnalytics(channel, videos)
     await writeCache(id, 'analytics', analytics)
@@ -58,7 +57,6 @@ export async function getInsights(req, res, next) {
     if (!channel) throw new AppError('Channel not found', 404)
 
     const videos = await Video.find({ channelId: id }).sort({ publishedAt: -1 })
-    if (!videos.length) throw new AppError('No videos found for this channel', 404)
 
     const insights = generateInsights(channel, videos)
     await writeCache(id, 'insights', insights)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fmt } from '../../utils/format'
@@ -37,7 +37,9 @@ export default function PerformanceChart({ data, channelColor, range, hasEstimat
       })
     : rangeData
 
-  const totalVal = displayData.reduce((s, d) => s + (d[metric] || 0), 0)
+  const totalVal = useMemo(() => {
+    return displayData.reduce((s, d) => s + (d[metric] || 0), 0)
+  }, [displayData, metric])
 
   const metrics = [
     { key: 'views', label: 'Views' },
@@ -115,8 +117,8 @@ export default function PerformanceChart({ data, channelColor, range, hasEstimat
       <div className="px-2 pb-5">
         {displayData.length === 0 ? (
           <EmptyState
-            title="Performance history unavailable"
-            description="Performance history unavailable. Connect YouTube Analytics API for detailed history."
+            title="Performance history unavailable."
+            description="Connect YouTube Analytics API for detailed history."
             icon={TrendingUp}
           />
         ) : (

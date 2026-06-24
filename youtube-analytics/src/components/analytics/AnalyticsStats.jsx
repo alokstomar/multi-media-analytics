@@ -1,7 +1,9 @@
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
 import { Clock, Zap, TrendingUp, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import EstimatedBadge from '../ui/EstimatedBadge'
+import EmptyState from '../ui/EmptyState'
 
 const icons = [Clock, Zap, TrendingUp, DollarSign]
 
@@ -72,19 +74,27 @@ function scaleStatValue(valStr, unit, range) {
 export default function AnalyticsStats({ data, range }) {
   const stats = Array.isArray(data) ? data : []
 
-  const scaledStats = stats.map((s) => {
-    const isCumulative = s.label === 'Watch Time' || s.label === 'Revenue Growth'
-    return {
-      ...s,
-      value: isCumulative ? scaleStatValue(s.value, s.unit, range) : s.value,
-    }
-  })
+  const scaledStats = useMemo(() => {
+    return stats.map((s) => {
+      const isCumulative = s.label === 'Watch Time' || s.label === 'Revenue Growth'
+      let val = s.value
+      if (val === '—' || val === null || val === undefined || val === '') {
+        val = 'Data unavailable'
+      }
+      return {
+        ...s,
+        value: isCumulative ? scaleStatValue(val, s.unit, range) : val,
+      }
+    })
+  }, [stats, range])
 
   if (scaledStats.length === 0) {
     return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-10 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.02), 0 4px 12px -2px rgba(0,0,0,0.04)' }}>
-        <p className="text-sm font-bold text-gray-500">No analytics data available</p>
-        <p className="text-xs text-gray-400 mt-1">Connect a channel to view performance metrics</p>
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 text-center" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.02), 0 4px 12px -2px rgba(0,0,0,0.04)' }}>
+        <EmptyState
+          title="No analytics data available"
+          description="Connect a channel to view performance metrics."
+        />
       </div>
     )
   }
@@ -131,26 +141,29 @@ export default function AnalyticsStats({ data, range }) {
 
               {/* Value */}
               <div className="flex items-baseline gap-1 mb-1">
-                <span className={`${s.value === 'Data unavailable' ? 'text-[15px]' : 'text-[26px]'} font-bold text-gray-900 tracking-[-0.02em] leading-none`}>{s.value}</span>
+                <span className={`${s.value === 'Data unavailable' || s.value === 'Revenue data unavailable' ? 'text-[14px]' : 'text-[26px]'} font-bold text-gray-900 tracking-[-0.02em] leading-none`}>{s.value}</span>
                 <span className="text-[13px] text-gray-400 font-medium">{s.unit}</span>
               </div>
 
               {/* Bottom row: sparkline + trend */}
               <div className="flex items-center justify-between mt-2 gap-2">
-                {trendStr && trendStr !== '—' ? (
-                  <span className={`inline-flex items-center gap-[3px] rounded-full px-2 py-[3px] text-[11px] font-semibold shrink-0 ${
-                    isUp
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : 'bg-red-50 text-red-500'
-                  }`}>
-                    {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                    {trendStr}
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-gray-400 font-medium italic truncate max-w-[130px]" title={s.source}>
-                    {s.source}
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 min-w-0 max-w-[calc(100%-80px)]">
+                  {trendStr && trendStr !== '—' && (
+                    <span className={`inline-flex items-center gap-[3px] rounded-full px-2 py-[3px] text-[11px] font-semibold shrink-0 ${
+                      isUp
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : 'bg-red-50 text-red-500'
+                    }`}>
+                      {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                      {trendStr}
+                    </span>
+                  )}
+                  {(!trendStr || trendStr === '—' || s.estimated) && (
+                    <span className="text-[10px] text-gray-400 font-medium italic truncate" title={s.source}>
+                      {s.source}
+                    </span>
+                  )}
+                </div>
 
                 <div className="h-6 w-[72px] shrink-0">
                   {sparkData.length > 0 ? (
