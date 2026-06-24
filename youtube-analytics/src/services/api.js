@@ -7,18 +7,21 @@ import axios from 'axios'
 // Detect "production" via the runtime hostname instead of import.meta.env.PROD
 // — Vite 8's static replacement of that flag has been observed baking the dev
 // default into production bundles. VITE_API_BASE_URL overrides in either case;
-const isDevelopment = import.meta.env.DEV
+// an explicit empty string is honored (use ??, not ||).
+const IS_LOCAL_DEV =
+  typeof window !== 'undefined' &&
+  (/^localhost(:\d+)?$/.test(window.location.hostname) || window.location.hostname === '127.0.0.1')
+const DEFAULT_BASE_URL = IS_LOCAL_DEV ? 'http://localhost:5000' : ''
 
 const api = axios.create({
-  baseURL: isDevelopment
-    ? (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
-    : '',
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL,
   timeout: 15000,
   withCredentials: true,
 })
 
-console.log('API Base URL:', api.defaults.baseURL)
-console.log('Current Origin:', window.location.origin)
+if (IS_LOCAL_DEV) {
+  console.log('API Base URL:', api.defaults.baseURL)
+}
 
 // Automatically attach active workspace ID to headers
 api.interceptors.request.use((config) => {
@@ -29,11 +32,35 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// 401 interceptor: when the backend rejects the auth cookie, the in-memory
+// user state and any stale localStorage workspaceId are no longer trustworthy.
+// Wipe them so the next navigation forces a clean re-login instead of looping
+// on requests that keep failing auth.
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err?.response?.status === 401) {
+      try {
+        localStorage.removeItem('activeWorkspaceId')
+      } catch {}
+    }
+    return Promise.reject(err)
+  },
+)
+
 // Cold Azure gpt-5.4 calls reliably take 17-22s. The global 15s timeout is
 // correct for non-AI APIs (DB reads, auth, channel CRUD) but aborts every
 // cold AI request before Azure responds. Use a per-request override on AI
 // endpoints only.
 const AI_TIMEOUT = 90000
+
+// Channel connection runs 5 sequential YouTube Data API calls (resolve →
+// details → channel lookup → playlist items → video stats) plus the cold-start
+// latency of a Vercel function. On a cold function this can push past the
+// 15s default and abort with "timeout of 15000ms exceeded" in the browser
+// even though the backend would have succeeded. Give this specific endpoint
+// headroom; everything else stays on the 15s default.
+const CHANNEL_TIMEOUT = 60000
 
 // In-flight deduplication: per-(method, channelId) memoization of pending
 // promises. Prevents duplicate GPT calls when multiple components mount at
@@ -106,7 +133,7 @@ export const acceptInvite = (token) =>
 
 // ── Channels ─────────────────────────────────────────────────────────
 export const addChannel = (input) =>
-  api.post('/api/channels', { input }).then((r) => r.data)
+  api.post('/api/channels', { input }, { timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const getChannels = () =>
   api.get('/api/channels').then((r) => r.data)
@@ -115,7 +142,7 @@ export const getChannel = (id) =>
   api.get(`/api/channels/${id}`).then((r) => r.data)
 
 export const refreshChannel = (id) =>
-  api.post(`/api/channels/${id}/refresh`).then((r) => r.data)
+  api.post(`/api/channels/${id}/refresh`, {}, { timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const deleteChannel = (id) =>
   api.delete(`/api/channels/${id}`).then((r) => r.data)

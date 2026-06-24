@@ -76,7 +76,18 @@ export default function Channels() {
       setShowAdd(false)
       await loadAll()
     } catch (err) {
-      setAddError(err.response?.data?.message || err.response?.data?.error || 'Failed to add channel')
+      const apiMsg = err.response?.data?.message || err.response?.data?.error
+      if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
+        setAddError('Channel lookup timed out — the backend cold-started or YouTube is slow. Please retry in a few seconds.')
+      } else if (err.response?.status === 401) {
+        setAddError('Your session has expired. Please log in again.')
+      } else if (err.response?.status === 403) {
+        setAddError('Workspace context missing or access denied. Refresh the page and try again.')
+      } else if (!err.response) {
+        setAddError(`Network error — unable to reach the backend. Check your connection and retry. (${err.message || 'no response'})`)
+      } else {
+        setAddError(apiMsg || 'Failed to add channel')
+      }
     } finally {
       setAdding(false)
     }
