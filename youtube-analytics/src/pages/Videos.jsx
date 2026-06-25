@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, SlidersHorizontal, ArrowUpDown, Download, ChevronDown,
   Video, Eye, MousePointerClick, Clock, Flame, TrendingUp,
-  ArrowUpRight, Sparkles, ChevronRight, Plus, BadgeCheck, RefreshCw
+  ArrowUpRight, Sparkles, ChevronRight, BadgeCheck, RefreshCw
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
