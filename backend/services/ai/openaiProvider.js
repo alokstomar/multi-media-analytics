@@ -32,6 +32,7 @@ const CACHE_TTL = {
   analyzeTitle: 48,
   analyzeThumbnail: 48,
   analyzeScript: 48,
+  simulatePerformance: 48,
   generateVideoIdeas: 12,
   generateShortsIdeas: 12,
   getStrategistTips: 6,
@@ -158,6 +159,18 @@ const VALIDATORS = {
       && Array.isArray(obj.weakSections)
       && Array.isArray(obj.rewrites)
       && Array.isArray(obj.hooks)
+  },
+  simulatePerformance(obj) {
+    return obj
+      && typeof obj.viralProbability === 'number'
+      && typeof obj.predictedCTR === 'number'
+      && typeof obj.predictedRetention === 'number'
+      && typeof obj.estimatedViews === 'string'
+      && typeof obj.recommendationScore === 'number'
+      && Array.isArray(obj.strengths)
+      && Array.isArray(obj.weaknesses)
+      && Array.isArray(obj.optimizationSuggestions)
+      && Array.isArray(obj.riskWarnings)
   },
   analyzeThumbnail(obj) {
     return obj
@@ -757,6 +770,114 @@ Be rigorous, analytical, and critical. Focus on identifying precise locations in
       })
     } catch (error) {
       console.error('Script Analysis Provider Error:', error)
+      throw error
+    }
+  }
+
+  async simulatePerformance(payload = {}) {
+    const title = (payload.title || '').toString().trim()
+    const duration = payload.duration || 10
+    const script = payload.script || ''
+    const thumbnail = payload.thumbnail || '' // Base64 data URL if present
+    const channelId = payload.channelId
+
+    const systemPrompt = `You are a YouTube algorithm simulator. Analyze a video concept (title, duration, script, and optional thumbnail design) to predict its algorithmic reach, viewer click-through behavior, and retention dynamics.
+Return ONLY valid JSON matching this exact structure:
+{
+  "viralProbability": <number 0-100, probability of algorithm promoting the video to a wider audience>,
+  "predictedCTR": <number, predicted click-through-rate percentage (e.g. 5.4)>,
+  "predictedRetention": <number 0-100, predicted average retention percentage>,
+  "estimatedViews": "<range string, e.g. '10K - 30K' or '150K - 400K'>",
+  "recommendationScore": <number 0-100, overall performance recommendation score>,
+  "strengths": ["specific structural strength 1", "specific structural strength 2"],
+  "weaknesses": ["specific structural weakness 1", "specific structural weakness 2"],
+  "optimizationSuggestions": ["actionable optimization suggestion 1", "actionable optimization suggestion 2"],
+  "riskWarnings": ["potential performance risk factor 1", "potential performance risk factor 2"]
+}
+Rubric:
+- Analyze how title keywords match target audience interests.
+- If a script is present, analyze hook timing and narrative pacing.
+- If a thumbnail is present, evaluate its visual appeal, contrast, clutter, and text readability.
+Be realistic, analytical, and highly critical. Do not write generic feedback.`
+
+    const userPrompt = `Simulate video performance with these parameters:
+Title: "${title}"
+Duration: ${duration} minutes
+Script details: ${script ? `"${script}"` : '(None provided)'}
+Thumbnail design: ${thumbnail ? 'Base64 image design attached for visual analysis.' : '(No thumbnail draft uploaded)'}`
+
+    try {
+      if (thumbnail) {
+        if (!this.apiKey) throw new Error(`${this.providerLabel} API Key not configured`)
+        const store = aiLocalStorage.getStore()
+        const userId = store?.userId
+
+        await this._checkBudget(userId)
+
+        const model = this.premiumModel
+        const startTime = Date.now()
+
+        console.log(`[AI OpenAI] Executing simulatePerformance (vision call) using model: ${model}`)
+        const completion = await this.client.chat.completions.create({
+          model,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userPrompt },
+                { type: 'image_url', image_url: { url: thumbnail } }
+              ]
+            }
+          ],
+          temperature: 0.5
+        })
+
+        const responseTimeMs = Date.now() - startTime
+        const rawContent = completion.choices?.[0]?.message?.content || '{}'
+        const usage = completion.usage || {}
+        const promptTokens = usage.prompt_tokens || 0
+        const completionTokens = usage.completion_tokens || 0
+        const totalTokens = usage.total_tokens || promptTokens + completionTokens
+        const cost = calculateCost({ provider: 'openai', model, promptTokens, completionTokens })
+
+        const parsed = parseJSON(rawContent)
+        if (!parsed || !VALIDATORS.simulatePerformance(parsed)) {
+          AIUsageLog.create({
+            method: 'simulatePerformance', model, promptTokens, completionTokens, totalTokens,
+            estimatedCost: cost, responseTimeMs,
+            success: false, error: `Invalid JSON structure from ${this.providerLabel}`,
+            cacheHit: false, params: { title, duration, scriptLength: script.length, hasThumbnail: true },
+            userId, provider: this.providerKey
+          }).catch(() => {})
+          throw new Error(`${this.providerLabel} returned invalid JSON structure for simulatePerformance`)
+        }
+
+        AIUsageLog.create({
+          method: 'simulatePerformance', model, promptTokens, completionTokens, totalTokens,
+          estimatedCost: cost, responseTimeMs,
+          success: true, cacheHit: false, params: { title, duration, scriptLength: script.length, hasThumbnail: true },
+          userId, provider: this.providerKey
+        }).catch(() => {})
+
+        if (userId) {
+          await incrementUserUsage(userId, { spend: cost, tokens: totalTokens, cacheHit: false })
+        }
+
+        console.log(`${this.logPrefix} simulatePerformance (vision) — ${model} — ${totalTokens} tokens — $${cost.toFixed(6)} — ${responseTimeMs}ms`)
+        return parsed
+      } else {
+        return await this._execute(
+          'simulatePerformance',
+          { title, duration, script: script.substring(0, 1000) },
+          systemPrompt,
+          userPrompt,
+          { temperature: 0.5 }
+        )
+      }
+    } catch (error) {
+      console.error('Performance Simulation Error:', error)
       throw error
     }
   }

@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp, ShieldCheck, Play, Plus, Sliders, AlertCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, ShieldCheck, Play, Plus, Sliders, AlertCircle, AlertTriangle, CheckCircle, Lightbulb } from 'lucide-react'
+import { useAnalytics } from '../../context/AnalyticsContext'
+import { simulatePerformance } from '../../services/api'
+import { ErrorState } from './StateShells'
 
 const cs = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)'
 
@@ -9,37 +12,53 @@ export default function PerformancePrediction() {
   const [title, setTitle] = useState('')
   const [script, setScript] = useState('')
   const [duration, setDuration] = useState(12)
-  const [thumbnailUploaded, setThumbnailUploaded] = useState(false)
+  const [thumbnailFile, setThumbnailFile] = useState(null)
   const [isPredicting, setIsPredicting] = useState(false)
   const [predictionResult, setPredictionResult] = useState(null)
+  const [errorMsg, setErrorMsg] = useState('')
 
-  const handlePredict = () => {
+  const { activeChannelId } = useAnalytics()
+
+  const handlePredict = async () => {
+    if (!title.trim() || !duration) return
     setIsPredicting(true)
     setPredictionResult(null)
+    setErrorMsg('')
 
-    setTimeout(() => {
-      // Calculate dynamic simulated predictions based on inputs
-      const titleLen = title.length
-      const scriptLen = script.length
-      let baseViews = 150000
-      let ctr = 6.4
-      let retention = 48
-      let subs = 2400
+    console.log('Performance simulation payload:', {
+      title,
+      duration,
+      scriptLength: script?.length || 0,
+      thumbnail: thumbnailFile?.name || null,
+      channelId: activeChannelId || null
+    })
 
-      if (titleLen > 15 && scriptLen > 100) {
-        baseViews = 1200000; ctr = 9.8; retention = 62; subs = 14200
+    const formData = new FormData()
+    formData.append('title', title)
+    formData.append('duration', duration)
+    if (script) formData.append('script', script)
+    if (thumbnailFile) formData.append('thumbnail', thumbnailFile)
+    if (activeChannelId) formData.append('channelId', activeChannelId)
+
+    try {
+      const res = await simulatePerformance(formData)
+      console.log('Performance simulation response:', res)
+      const d = res?.data
+      if (d && d.recommendationScore != null) {
+        setPredictionResult(d)
+      } else {
+        setErrorMsg('Invalid response format received from simulation endpoint.')
       }
-
-      setPredictionResult({
-        views: fmtViews(baseViews),
-        ctr: `${ctr}%`,
-        retention: `${retention}%`,
-        engagement: `${(baseViews * 0.08).toFixed(0)} likes`,
-        subs: `+${fmtViews(subs)}`,
-        grade: ctr >= 8 ? 'A+' : 'B'
-      })
+    } catch (err) {
+      console.error('Performance simulation error:', err)
+      const message =
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message
+      setErrorMsg(message)
+    } finally {
       setIsPredicting(false)
-    }, 2000)
+    }
   }
 
   function fmtViews(n) {
@@ -117,16 +136,21 @@ export default function PerformancePrediction() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5">Thumbnail Upload</label>
-                      <button
-                        onClick={() => setThumbnailUploaded(!thumbnailUploaded)}
+                      <label
                         className={`
                           w-full h-11 rounded-xl border-2 border-dashed text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer
-                          ${thumbnailUploaded ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/5 text-gray-400'}
+                          ${thumbnailFile ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/5 text-gray-400'}
                         `}
                       >
                         <Plus className="h-4 w-4 shrink-0" />
-                        {thumbnailUploaded ? 'Attached' : 'Add Draft Image'}
-                      </button>
+                        {thumbnailFile ? (thumbnailFile.name.length > 15 ? `${thumbnailFile.name.slice(0, 12)}...` : thumbnailFile.name) : 'Add Draft Image'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)}
+                          className="hidden"
+                        />
+                      </label>
                     </div>
 
                     <div>
@@ -170,7 +194,7 @@ export default function PerformancePrediction() {
                     </div>
                   )}
 
-                  {!predictionResult && !isPredicting && (
+                  {!predictionResult && !isPredicting && !errorMsg && (
                     <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-9 text-center flex flex-col items-center justify-center gap-2.5">
                       <AlertCircle className="h-8 w-8 text-gray-400 shrink-0" />
                       <div>
@@ -178,6 +202,10 @@ export default function PerformancePrediction() {
                         <p className="text-xs text-gray-400 font-bold mt-0.5">Provide draft titles and script metrics on the left to begin</p>
                       </div>
                     </div>
+                  )}
+
+                  {errorMsg && !isPredicting && (
+                    <ErrorState message={errorMsg} onRetry={handlePredict} />
                   )}
 
                   {predictionResult && !isPredicting && (
@@ -188,35 +216,95 @@ export default function PerformancePrediction() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100/30"><ShieldCheck className="h-4 w-4 animate-pulse" /></div>
+                          <div className="h-7 w-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100/30">
+                            <ShieldCheck className="h-4 w-4 animate-pulse" />
+                          </div>
                           <p className="text-[13.5px] font-bold text-gray-900 tracking-tight">Reach Prediction Report</p>
                         </div>
                         <span className="text-[10px] font-bold px-2.5 py-0.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100/50">
-                          GRADE: {predictionResult.grade}
+                          SCORE: {predictionResult.recommendationScore}/100
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                         <div className="bg-white p-3.5 rounded-xl border border-gray-100 text-center shadow-xs">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estimated Views</p>
-                          <p className="text-[18px] font-bold text-gray-900 mt-0.5">{predictionResult.views}</p>
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estimated Reach</p>
+                          <p className="text-[15px] font-bold text-gray-900 mt-0.5">{predictionResult.estimatedViews}</p>
                         </div>
                         <div className="bg-white p-3.5 rounded-xl border border-gray-100 text-center shadow-xs">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estimated CTR</p>
-                          <p className="text-[18px] font-bold text-emerald-600 mt-0.5">{predictionResult.ctr}</p>
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Viral Probability</p>
+                          <p className="text-[15px] font-bold text-emerald-600 mt-0.5">{predictionResult.viralProbability}%</p>
                         </div>
                         <div className="bg-white p-3.5 rounded-xl border border-gray-100 text-center shadow-xs">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estimated Retention</p>
-                          <p className="text-[18px] font-bold text-indigo-600 mt-0.5">{predictionResult.retention}</p>
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Predicted CTR</p>
+                          <p className="text-[15px] font-bold text-indigo-600 mt-0.5">{predictionResult.predictedCTR}%</p>
                         </div>
-                        <div className="bg-white p-3.5 rounded-xl border border-gray-100 text-center shadow-xs">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Sub Gain Target</p>
-                          <p className="text-[18px] font-bold text-purple-600 mt-0.5">{predictionResult.subs}</p>
+                        <div className="bg-white p-3.5 rounded-xl border border-gray-100 text-center shadow-xs col-span-2 lg:col-span-3">
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Predicted Retention</p>
+                          <p className="text-[15px] font-bold text-purple-600 mt-0.5">{predictionResult.predictedRetention}%</p>
                         </div>
                       </div>
 
-                      <div className="text-[10px] text-gray-600 font-semibold bg-emerald-50 p-3 rounded-xl border border-emerald-100/25 leading-relaxed">
-                        <span className="font-bold text-emerald-600 uppercase tracking-wider text-[9px] block mb-0.5">AI algorithmic prediction:</span> This concept hits extreme emotional weights matching high search queries, positioning it for maximum initial video push target.
+                      {/* Strengths & Weaknesses Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        {predictionResult.strengths?.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[10.5px] font-bold text-gray-700 tracking-tight flex items-center gap-1">
+                              <CheckCircle className="h-3.5 w-3.5 text-emerald-500" /> Strengths
+                            </p>
+                            <ul className="space-y-1.5">
+                              {predictionResult.strengths.map((str, i) => (
+                                <li key={i} className="text-[10px] text-gray-600 bg-gray-50 border border-gray-100 p-2 rounded-lg font-medium leading-relaxed">
+                                  {str}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {predictionResult.weaknesses?.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[10.5px] font-bold text-gray-700 tracking-tight flex items-center gap-1">
+                              <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" /> Weaknesses
+                            </p>
+                            <ul className="space-y-1.5">
+                              {predictionResult.weaknesses.map((weak, i) => (
+                                <li key={i} className="text-[10px] text-gray-600 bg-gray-50 border border-gray-100 p-2 rounded-lg font-medium leading-relaxed">
+                                  {weak}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Suggestions & Risk Warnings */}
+                      <div className="space-y-3 pt-2">
+                        {predictionResult.optimizationSuggestions?.length > 0 && (
+                          <div className="bg-emerald-50/50 p-3.5 rounded-xl border border-emerald-100/30 space-y-2">
+                            <span className="font-bold text-emerald-700 uppercase tracking-wider text-[9px] flex items-center gap-1">
+                              <Lightbulb className="h-3.5 w-3.5" /> Optimization Suggestions
+                            </span>
+                            <ul className="space-y-1.5 text-[10px] text-gray-700 list-disc list-inside font-medium leading-relaxed">
+                              {predictionResult.optimizationSuggestions.map((sug, i) => (
+                                <li key={i}>{sug}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {predictionResult.riskWarnings?.length > 0 && (
+                          <div className="bg-red-50/50 p-3.5 rounded-xl border border-red-100/30 space-y-2">
+                            <span className="font-bold text-red-700 uppercase tracking-wider text-[9px] flex items-center gap-1">
+                              <AlertCircle className="h-3.5 w-3.5 text-red-500" /> Algorithmic Risk Warnings
+                            </span>
+                            <ul className="space-y-1.5 text-[10px] text-gray-700 list-disc list-inside font-medium leading-relaxed">
+                              {predictionResult.riskWarnings.map((risk, i) => (
+                                <li key={i} className="text-red-900/90">{risk}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

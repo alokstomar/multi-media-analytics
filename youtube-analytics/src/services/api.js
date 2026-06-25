@@ -254,6 +254,18 @@ export const analyzeThumbnail = (payload) =>
 export const analyzeScript = (payload) =>
   api.post('/api/intelligence/analyze/script', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
 
+export const simulatePerformance = (formData) =>
+  api.post(
+    '/api/intelligence/performance/simulate',
+    formData,
+    {
+      timeout: 90000,
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    }
+  ).then(r => r.data)
+
 export const generateVideoIdeas = (channelId, payload = {}) =>
   dedupeAI(`video-ideas:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/ideas`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))

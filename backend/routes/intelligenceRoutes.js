@@ -11,6 +11,7 @@ import {
   getStrategistTips,
   predictPerformance,
   summarizeAlerts,
+  simulatePerformance,
 } from '../controllers/intelligenceController.js'
 
 const router = Router()
@@ -55,5 +56,17 @@ router.post('/analyze/thumbnail', upload.single('thumbnail'), (err, req, res, ne
   next()
 }, analyzeThumbnail)
 router.post('/analyze/script', analyzeScript)
+router.post('/performance/simulate', upload.single('thumbnail'), (err, req, res, next) => {
+  if (err) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'FILE_UPLOAD_ERROR',
+        message: err.message
+      }
+    })
+  }
+  next()
+}, simulatePerformance)
 
 export default router

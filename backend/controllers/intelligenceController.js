@@ -3,6 +3,7 @@ import Video from '../models/Video.js'
 import IntelligenceCache from '../models/IntelligenceCache.js'
 import { getAIProvider, getActiveProviderName } from '../services/ai/index.js'
 import { AppError } from '../utils/errorHandler.js'
+import crypto from 'crypto'
 
 function attachAIHeaders(res) {
   res.setHeader('X-AI-Provider', getActiveProviderName())
@@ -197,6 +198,88 @@ export async function analyzeScript(req, res, next) {
     attachAIHeaders(res)
     res.json(withMeta(result, 'analyze-script'))
   } catch (err) {
+    next(err)
+  }
+}
+
+export async function simulatePerformance(req, res, next) {
+  try {
+    const { title, duration, script, channelId } = req.body
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TITLE_REQUIRED',
+          message: 'Video title is required.'
+        }
+      })
+    }
+
+    if (title.length <= 10) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TITLE_TOO_SHORT',
+          message: 'Video title must be longer than 10 characters.'
+        }
+      })
+    }
+
+    const parsedDuration = parseInt(duration)
+    if (isNaN(parsedDuration) || parsedDuration <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_DURATION',
+          message: 'Video duration must be greater than 0.'
+        }
+      })
+    }
+
+    console.log({
+      operation: 'simulatePerformance',
+      userId: req.user?._id?.toString() || null,
+      workspaceId: req.workspaceId || null,
+      titleLength: title.length,
+      scriptLength: script?.length || 0,
+      duration: parsedDuration,
+      hasThumbnail: !!req.file
+    })
+
+    const thumbnailHash = req.file
+      ? crypto.createHash('sha256').update(req.file.buffer).digest('hex')
+      : 'none'
+
+    const cacheKey = contentCacheKey(
+      `${title}:${parsedDuration}:${script || ''}:${thumbnailHash}`,
+      'simulate'
+    )
+
+    const thumbnailDataUrl = req.file
+      ? `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
+      : null
+
+    const simulationPromise = cachedAI(cacheKey, 'performance-simulate', () =>
+      getAIProvider().simulatePerformance({
+        title,
+        duration: parsedDuration,
+        script,
+        thumbnail: thumbnailDataUrl,
+        channelId
+      })
+    )
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Performance simulation timed out')), 60000)
+    )
+
+    const result = await Promise.race([simulationPromise, timeoutPromise])
+
+    attachAIHeaders(res)
+    res.json(withMeta(result, 'performance-simulate'))
+  } catch (err) {
+    console.error('[AI Performance Simulation Route] Error simulating performance:', err)
     next(err)
   }
 }

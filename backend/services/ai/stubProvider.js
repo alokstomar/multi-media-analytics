@@ -398,6 +398,44 @@ export class StubAIProvider extends AIProviderInterface {
     }
   }
 
+  async simulatePerformance(payload = {}) {
+    const title = payload.title || ''
+    const { slice } = seededRandom('simulate::' + title)
+
+    const viralProbability = Math.round(50 + slice(0) * 45) // 50-95
+    const predictedCTR = parseFloat((3.5 + slice(4) * 8).toFixed(1)) // 3.5-11.5
+    const predictedRetention = Math.round(35 + slice(8) * 45) // 35-80
+    const recommendationScore = Math.round(55 + slice(12) * 40) // 55-95
+
+    const rangeMin = Math.round(10 + slice(16) * 100)
+    const rangeMax = Math.round(rangeMin * (1.5 + slice(20) * 2))
+    const estimatedViews = `${rangeMin}K - ${rangeMax}K`
+
+    return {
+      viralProbability,
+      predictedCTR,
+      predictedRetention,
+      estimatedViews,
+      recommendationScore,
+      strengths: [
+        'Title contains a high-performing curiosity hook.',
+        'Length is optimal for this topic category.',
+        'Hook delivery rate is high based on script pacing.'
+      ],
+      weaknesses: [
+        'Thumbnail visual clutter is slightly elevated.',
+        'First 30 seconds of the script could have more dynamic visual cues.'
+      ],
+      optimizationSuggestions: [
+        'Increase text contrast on the thumbnail.',
+        'Simplify the second sentence of the hook to make it punchier.'
+      ],
+      riskWarnings: [
+        'Possible retention drop-off around the 3-minute mark due to long explanation.'
+      ]
+    }
+  }
+
   async generateVideoIdeas(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || 'demo'
     const channel = ctx.channel || {}
