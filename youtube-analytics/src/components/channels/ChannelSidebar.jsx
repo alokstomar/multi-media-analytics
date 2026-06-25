@@ -84,20 +84,7 @@ export default function ChannelSidebar({ channels = [], insights = [] }) {
         <p className="text-[11px] text-gray-400 mt-2">{50 - channels.length} slots remaining</p>
       </div>
 
-      {/* Upgrade card */}
-      <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 p-5 text-white shadow-lg shadow-indigo-500/20">
-        <div className="flex items-center gap-2 mb-2">
-          <Crown className="h-5 w-5 text-amber-300" />
-          <h3 className="text-sm font-bold">Upgrade to Pro</h3>
-        </div>
-        <p className="text-xs text-white/70 mb-4 leading-relaxed">
-          Unlock unlimited channels, advanced analytics, and priority support.
-        </p>
-        <button className="w-full flex items-center justify-center gap-2 rounded-xl bg-white text-indigo-700 py-2.5 text-sm font-semibold hover:bg-white/90 transition">
-          <Zap className="h-4 w-4" />
-          Upgrade Now
-        </button>
-      </div>
+
     </motion.aside>
   )
 }
