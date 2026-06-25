@@ -278,6 +278,10 @@ export const getContentGaps = (channelId, payload = {}) =>
   dedupeAI(`content-gaps:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/content-gaps`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
+export const getCompetitorOpportunities = (channelId) =>
+  dedupeAI(`competitor-opportunities:${channelId}`, () =>
+    api.get(`/api/intelligence/competitor-opportunities`, { params: { channelId }, timeout: AI_TIMEOUT }).then((r) => r.data))
+
 export const getStrategistTips = (channelId, payload = {}) =>
   dedupeAI(`strategist-tips:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/strategist`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))

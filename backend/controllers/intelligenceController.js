@@ -390,3 +390,69 @@ export async function summarizeAlerts(req, res, next) {
     next(err)
   }
 }
+
+export async function getCompetitorOpportunities(req, res, next) {
+  try {
+    const { channelId } = req.query
+    if (!channelId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'CHANNEL_ID_REQUIRED',
+          message: 'channelId query parameter is required.'
+        }
+      })
+    }
+
+    // Load active channel context
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+
+    // Load competitor/portfolio channels in workspace
+    const workspaceChannels = await Channel.find({ workspaceId: req.workspaceId }).lean()
+    const competitors = workspaceChannels.filter(c => c.channelId !== channelId)
+
+    // Load top competitor videos
+    const competitorChannelIds = competitors.map(c => c.channelId)
+    const topVideos = await Video.find({ channelId: { $in: competitorChannelIds } })
+      .sort({ publishedAt: -1 })
+      .limit(30)
+      .lean()
+
+    // Build unique portfolioHash and stable cacheKey
+    const sortedCompIds = competitorChannelIds.sort().join(',')
+    const portfolioHash = crypto.createHash('md5').update(sortedCompIds).digest('hex').substring(0, 10)
+    const cacheKey = `competitor-opportunities:${req.workspaceId}:${channelId}:${portfolioHash}`
+
+    const result = await cachedAI(cacheKey, 'competitor-opportunities', () =>
+      getAIProvider().generateCompetitorOpportunities({
+        channelId,
+        channel,
+        videos,
+        competitors,
+        topVideos
+      }, {
+        channelId,
+        feature: 'competitor-opportunities'
+      })
+    )
+
+    attachAIHeaders(res)
+    res.json(withMeta(result, 'competitor-opportunities'))
+  } catch (err) {
+    console.error('[AI Competitor Opportunities Route] Error:', err)
+    // Fallback data if AI fails:
+    const fallbackResult = {
+      opportunities: [
+        {
+          title: 'Unable to generate opportunities right now',
+          opportunityLevel: 'Medium',
+          estimatedSearchVolume: 'Unknown',
+          reason: 'AI service temporarily unavailable.'
+        }
+      ]
+    }
+    attachAIHeaders(res)
+    res.json(withMeta(fallbackResult, 'competitor-opportunities'))
+  }
+}
+

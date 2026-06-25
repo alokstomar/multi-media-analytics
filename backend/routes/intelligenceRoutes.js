@@ -12,6 +12,7 @@ import {
   predictPerformance,
   summarizeAlerts,
   simulatePerformance,
+  getCompetitorOpportunities,
 } from '../controllers/intelligenceController.js'
 
 const router = Router()
@@ -31,6 +32,7 @@ const upload = multer({
 })
 
 router.get('/health', healthCheck)
+router.get('/competitor-opportunities', getCompetitorOpportunities)
 
 // Channel-scoped intelligence
 router.post('/:channelId/ideas', generateVideoIdeas)

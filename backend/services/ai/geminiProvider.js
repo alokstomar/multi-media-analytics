@@ -30,7 +30,8 @@ const CACHE_TTL = {
   generateShortsIdeas: 12,
   getStrategistTips: 6,
   getContentGaps: 12,
-  summarizeAlerts: 6
+  summarizeAlerts: 6,
+  generateCompetitorOpportunities: 24
 }
 
 // ── Model tier: which methods get the premium model ─────────────────────
@@ -210,6 +211,17 @@ const VALIDATORS = {
     if (!Array.isArray(obj.topRisks) || !Array.isArray(obj.topOpportunities)) return false
     const itemOk = (i) => i && typeof i.title === 'string' && typeof i.desc === 'string'
     return obj.topRisks.every(itemOk) && obj.topOpportunities.every(itemOk)
+  },
+  generateCompetitorOpportunities(obj) {
+    return obj
+      && Array.isArray(obj.opportunities)
+      && obj.opportunities.every(o =>
+        o
+        && typeof o.title === 'string'
+        && typeof o.opportunityLevel === 'string'
+        && typeof o.estimatedSearchVolume === 'string'
+        && typeof o.reason === 'string'
+      )
   }
 }
 
@@ -1180,6 +1192,43 @@ Identify 5 content gaps and 4 niche trends for this channel.`
     return this._execute(
       'getContentGaps',
       { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.7 }
+    )
+  }
+
+  async generateCompetitorOpportunities(payload = {}, _opts = {}) {
+    const channel = payload.channel || {}
+    const competitors = Array.isArray(payload.competitors) ? payload.competitors : []
+    const topVideos = Array.isArray(payload.topVideos) ? payload.topVideos : []
+
+    const systemPrompt = `You are a YouTube growth strategist and competitive intelligence analyst.
+Analyze the target channel context, the competitor channels in the workspace, and the top performing competitor videos to discover content opportunities that the target channel can exploit.
+Return ONLY valid JSON matching this exact structure:
+{
+  "opportunities": [
+    {
+      "title": "<compelling, search-optimized/click-optimized video title option>",
+      "opportunityLevel": "High" | "Medium" | "Very High",
+      "estimatedSearchVolume": "<estimated volume range, e.g., '10K - 50K' or '100K+'>",
+      "reason": "<detailed strategic reasoning explaining why this is an opportunity based on competitor gaps, high view counts, low keyword optimization, or specific audience demand>"
+    }
+  ]
+}
+Rubric:
+- Compare the target channel niche/profile to competitors.
+- Look for themes/topics in the top competitor videos that get high engagement/views but could be improved (e.g. better packaging, different angle, more depth).
+- Keep suggestions extremely actionable, specific, and realistic for the channel niche.`
+
+    const userPrompt = `Analyze competitive landscape for target channel:
+Target Channel: "${channel.title || 'Unknown'}" (Subscribers: ${channel.subscribers || 0}, Description: "${channel.description || ''}")
+Competitors: ${JSON.stringify(competitors.map(c => ({ title: c.title, handle: c.handle, subscribers: c.subscribers, description: c.description })))}
+Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, views: v.views, duration: v.duration, publishedAt: v.publishedAt })))}`
+
+    return this._execute(
+      'generateCompetitorOpportunities',
+      { channelId: payload.channelId || 'unknown' },
       systemPrompt,
       userPrompt,
       { temperature: 0.7 }

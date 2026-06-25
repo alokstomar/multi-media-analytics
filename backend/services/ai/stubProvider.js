@@ -436,6 +436,40 @@ export class StubAIProvider extends AIProviderInterface {
     }
   }
 
+  async generateCompetitorOpportunities(payload = {}, _opts = {}) {
+    const channelId = payload.channelId || 'demo'
+    const { slice } = seededRandom('competitor-opportunities::' + channelId)
+
+    const levels = ['High', 'Medium', 'Very High']
+    const volumes = ['10K - 50K', '50K - 100K', '5K - 20K', '100K+']
+    const subjects = ['Setup Guide', 'Tips & Tricks', 'Avoid These Mistakes', 'Future Trends', 'Case Study']
+
+    const channelTitle = payload.channelTitle || 'Your Channel'
+    const opportunities = [
+      {
+        title: `Comprehensive ${channelTitle} ${subjects[Math.floor(slice(0) * subjects.length)]}`,
+        opportunityLevel: levels[Math.floor(slice(1) * levels.length)],
+        estimatedSearchVolume: volumes[Math.floor(slice(2) * volumes.length)],
+        reason: 'Competitors have high views but low keyword density on this specific topic.'
+      },
+      {
+        title: `Mastering the Basics: A Deep Dive into ${channelTitle}`,
+        opportunityLevel: levels[Math.floor(slice(3) * levels.length)],
+        estimatedSearchVolume: volumes[Math.floor(slice(4) * volumes.length)],
+        reason: 'Search demand has spiked 40% over the last week with minimal content available.'
+      },
+      {
+        title: `Why Most Creators Fail at ${channelTitle} and How to Succeed`,
+        opportunityLevel: levels[Math.floor(slice(5) * levels.length)],
+        estimatedSearchVolume: volumes[Math.floor(slice(6) * volumes.length)],
+        reason: 'Audience retention on similar competitor videos drops due to poor pacing; a high-quality script could capture this traffic.'
+      }
+    ]
+
+    return { opportunities }
+  }
+
+
   async generateVideoIdeas(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || 'demo'
     const channel = ctx.channel || {}

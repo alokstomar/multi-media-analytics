@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, ShieldCheck, Play, Plus, Sliders, AlertCircle, AlertTriangle, CheckCircle, Lightbulb } from 'lucide-react'
 import { useAnalytics } from '../../context/AnalyticsContext'
@@ -13,13 +13,35 @@ export default function PerformancePrediction() {
   const [script, setScript] = useState('')
   const [duration, setDuration] = useState(12)
   const [thumbnailFile, setThumbnailFile] = useState(null)
+  const [thumbnailPreview, setThumbnailPreview] = useState(null)
   const [isPredicting, setIsPredicting] = useState(false)
   const [predictionResult, setPredictionResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
 
   const { activeChannelId } = useAnalytics()
 
+  const handleThumbnailSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (thumbnailPreview) {
+      URL.revokeObjectURL(thumbnailPreview)
+    }
+
+    setThumbnailFile(file)
+    setThumbnailPreview(URL.createObjectURL(file))
+  }
+
+  useEffect(() => {
+    return () => {
+      if (thumbnailPreview) {
+        URL.revokeObjectURL(thumbnailPreview)
+      }
+    }
+  }, [thumbnailPreview])
+
   const handlePredict = async () => {
+    if (isPredicting) return
     if (!title.trim() || !duration) return
     setIsPredicting(true)
     setPredictionResult(null)
@@ -147,10 +169,17 @@ export default function PerformancePrediction() {
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)}
+                          onChange={handleThumbnailSelect}
                           className="hidden"
                         />
                       </label>
+                      {thumbnailPreview && (
+                        <img
+                          src={thumbnailPreview}
+                          alt="Thumbnail preview"
+                          className="w-full h-32 object-cover rounded-lg mt-3"
+                        />
+                      )}
                     </div>
 
                     <div>

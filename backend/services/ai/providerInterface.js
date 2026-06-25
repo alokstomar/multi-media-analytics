@@ -77,6 +77,10 @@ export class AIProviderInterface {
     throw new Error('simulatePerformance() not implemented')
   }
 
+  async generateCompetitorOpportunities(payload, opts) {
+    throw new Error('generateCompetitorOpportunities() not implemented')
+  }
+
   // ── Portfolio Intelligence (multi-channel aggregates) ────────────────
   // All take a context object with `channels: [{ channel, videos }]` as
   // produced by portfolioController.loadPortfolioContext, and an options
