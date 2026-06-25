@@ -3,16 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, Image, Sparkles, Check, Play, UploadCloud } from 'lucide-react'
 import { useAnalytics } from '../../context/AnalyticsContext'
 import { analyzeThumbnail } from '../../services/api'
-import { LoadingState, ErrorState, isAiUnavailable } from './StateShells'
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
+import { LoadingState, ErrorState } from './StateShells'
 
 export default function ThumbnailAnalyzer() {
   const [isOpen, setIsOpen] = useState(false)
@@ -55,12 +46,25 @@ export default function ThumbnailAnalyzer() {
   const runAnalysis = useCallback(async (file) => {
     setStatus('loading')
     setAnalysisResult(null)
+    setErrorMsg('')
     try {
-      const base64 = await fileToBase64(file)
-      const res = await analyzeThumbnail({
-        imageBase64: base64,
-        channelId: activeChannelId || undefined,
+      console.log('[ThumbnailAnalyzer] Starting analysis for file:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        channelId: activeChannelId
       })
+
+      const formData = new FormData()
+      formData.append('thumbnail', file)
+      if (activeChannelId) {
+        formData.append('channelId', activeChannelId)
+      }
+
+      console.log('[ThumbnailAnalyzer] Dispatching upload to analyzeThumbnail...')
+      const res = await analyzeThumbnail(formData)
+      console.log('[ThumbnailAnalyzer] Response received:', res)
+
       const d = res?.data
       if (d && d.ctr != null) {
         setAnalysisResult(d)
@@ -70,8 +74,12 @@ export default function ThumbnailAnalyzer() {
         setStatus('error')
       }
     } catch (err) {
+      console.error('[ThumbnailAnalyzer] Error during analysis:', err)
       setAnalysisResult(null)
-      setErrorMsg(isAiUnavailable(err) ? 'AI service temporarily unavailable' : 'Failed to analyze thumbnail')
+      
+      // Parse structured error or string error from backend
+      const backendError = err.response?.data?.error?.message || err.response?.data?.message || err.response?.data?.error || err.message
+      setErrorMsg(backendError || 'Failed to analyze thumbnail')
       setStatus('error')
     }
   }, [activeChannelId])

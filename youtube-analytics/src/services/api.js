@@ -244,7 +244,12 @@ export const analyzeTitle = (payload) =>
   api.post('/api/intelligence/analyze/title', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
 
 export const analyzeThumbnail = (payload) =>
-  api.post('/api/intelligence/analyze/thumbnail', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)
+  api.post('/api/intelligence/analyze/thumbnail', payload, {
+    timeout: 90000,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }).then((r) => r.data)
 
 export const analyzeScript = (payload) =>
   api.post('/api/intelligence/analyze/script', payload, { timeout: AI_TIMEOUT }).then((r) => r.data)

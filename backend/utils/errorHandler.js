@@ -90,14 +90,19 @@ export function errorHandler(err, _req, res, _next) {
   // 5. AIProviderError — production AI failed; surface clean 503 + provider.
   else if (err?.name === 'AIProviderError' || err?.aiUnavailable === true) {
     status = 503
-    exposed = 'AI provider temporarily unavailable'
+    const detailedMsg = err.cause?.message || err.message
+    exposed = `AI provider temporarily unavailable: ${detailedMsg}`
     body.aiUnavailable = true
     body.provider = err.provider || 'unknown'
+    body.error = {
+      code: 'AI_PROVIDER_ERROR',
+      message: detailedMsg
+    }
     console.warn('[AI Provider Error]', JSON.stringify({
       provider: err.provider,
       model: err.model || null,
       endpoint: err.method || null,
-      error: err.cause?.message || err.message,
+      error: detailedMsg,
     }))
     if (err.provider) res.setHeader('X-AI-Provider', err.provider)
     res.setHeader('X-AI-Status', 'failed')
@@ -107,7 +112,9 @@ export function errorHandler(err, _req, res, _next) {
     exposed = 'Internal server error. Please try again later.'
   }
 
-  body.error = exposed
+  if (!body.error) {
+    body.error = exposed
+  }
 
   // Internal log keeps the full error for debugging (skip for AIProviderError
   // — already logged in structured form above).

@@ -99,13 +99,49 @@ export async function analyzeTitle(req, res, next) {
 
 export async function analyzeThumbnail(req, res, next) {
   try {
-    const cacheKey = contentCacheKey(req.body?.imageBase64, 'thumb')
+    // 1. Structured logging of request lifecycle
+    console.log('[AI Thumbnail Route] Multipart file upload received:', {
+      fileReceived: !!req.file,
+      fileName: req.file?.originalname || null,
+      mimeType: req.file?.mimetype || null,
+      size: req.file?.size || 0,
+      authenticatedUser: req.user?._id?.toString() || null,
+      workspaceId: req.workspaceId || null,
+    })
+
+    // 2. Guard against missing, empty, or corrupted buffers
+    if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_FILE_BUFFER',
+          message: 'Uploaded image is empty, missing, or corrupted'
+        }
+      })
+    }
+
+    // 3. Log AI provider and model configuration
+    console.log('[AI Thumbnail Vision Analyzer] Config details:', {
+      provider: process.env.AI_PROVIDER || 'openai',
+      visionModel: process.env.OPENAI_PREMIUM_MODEL || 'gpt-5.4',
+      userId: req.user?._id?.toString() || null
+    })
+
+    // 4. Convert req.file.buffer to base64 Data URL
+    const imageBase64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
+
+    const cacheKey = contentCacheKey(imageBase64, 'thumb')
     const result = await cachedAI(cacheKey, 'analyze-thumbnail', () =>
-      getAIProvider().analyzeThumbnail(req.body, { feature: 'analyze-thumbnail' }),
+      getAIProvider().analyzeThumbnail(
+        { imageBase64, channelId: req.body?.channelId || req.query?.channelId },
+        { feature: 'analyze-thumbnail' }
+      )
     )
+
     attachAIHeaders(res)
     res.json(withMeta(result, 'analyze-thumbnail'))
   } catch (err) {
+    console.error('[AI Thumbnail Route] Error analyzing thumbnail:', err)
     next(err)
   }
 }

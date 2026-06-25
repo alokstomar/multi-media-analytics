@@ -766,15 +766,22 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
       { type: 'image_url', image_url: { url: imageDataUrl } },
     ]
 
-    const completion = await this.client.chat.completions.create({
-      model,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.3,
-    })
+    let completion
+    try {
+      console.log(`[AI OpenAI] Executing analyzeThumbnail vision call using model: ${model}`)
+      completion = await this.client.chat.completions.create({
+        model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.3,
+      })
+    } catch (apiErr) {
+      console.error(`[AI OpenAI] Error during OpenAI/Azure Vision API execution:`, apiErr)
+      throw apiErr
+    }
 
     const responseTimeMs = Date.now() - startTime
     const rawContent = completion.choices?.[0]?.message?.content || '{}'

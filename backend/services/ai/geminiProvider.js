@@ -651,18 +651,25 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
     // Gemini vision: split the data URL into raw base64 + mimeType.
     const { mimeType, data: imageBase64 } = splitDataUrl(imageDataUrl)
 
-    const response = await this.client.models.generateContent({
-      model,
-      contents: [
-        { text: 'Analyze this YouTube thumbnail and predict its CTR performance.' },
-        { inlineData: { mimeType, data: imageBase64 } },
-      ],
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: 'application/json',
-        temperature: 0.3,
-      },
-    })
+    let response
+    try {
+      console.log(`[AI Gemini] Executing analyzeThumbnail vision call using model: ${model}`)
+      response = await this.client.models.generateContent({
+        model,
+        contents: [
+          { text: 'Analyze this YouTube thumbnail and predict its CTR performance.' },
+          { inlineData: { mimeType, data: imageBase64 } },
+        ],
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+          temperature: 0.3,
+        },
+      })
+    } catch (apiErr) {
+      console.error(`[AI Gemini] Error during Gemini Vision API execution:`, apiErr)
+      throw apiErr
+    }
 
     const responseTimeMs = Date.now() - startTime
     const rawContent = response.text || '{}'
