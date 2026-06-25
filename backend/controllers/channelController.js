@@ -13,9 +13,14 @@ export async function addChannel(req, res, next) {
     const channelId = await resolveChannelId(input)
     const details = await fetchChannelDetails(channelId)
 
-    // Perform atomic upsert using global unique channelId
+    // Perform atomic upsert scoped to (channelId + workspaceId) so that each
+    // workspace owns its own Channel document. Previously the query was keyed
+    // only on { channelId }, which meant a channel first added by workspace A
+    // would permanently block every other workspace from adding the same channel
+    // — they would hit the wasUpdated=true branch and receive "Channel already
+    // connected" while getChannels (filtered by workspaceId) returned nothing.
     const result = await Channel.findOneAndUpdate(
-      { channelId: details.channelId },
+      { channelId: details.channelId, workspaceId: req.workspaceId },
       {
         $set: {
           title: details.title,
@@ -44,7 +49,7 @@ export async function addChannel(req, res, next) {
     const wasUpdated = result.lastErrorObject?.updatedExisting
 
     if (wasUpdated) {
-      console.log(`[Channel Connect] Reused existing channel document: ${channel.channelId} (currently associated with workspace: ${channel.workspaceId})`)
+      console.log(`[Channel Connect] Updated existing channel for workspace ${req.workspaceId}: ${channel.channelId}`)
 
       await syncUserYoutubeIntegration(req.user._id, req.workspaceId)
 
