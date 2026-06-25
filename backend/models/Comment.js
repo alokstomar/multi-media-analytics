@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 
 const commentSchema = new mongoose.Schema({
-  commentId: { type: String, required: true, unique: true },
+  commentId: { type: String, required: true },
   workspaceId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Workspace',
@@ -53,5 +53,7 @@ commentSchema.index({ workspaceId: 1, channelId: 1 })
 commentSchema.index({ channelId: 1, sentiment: 1 })
 commentSchema.index({ channelId: 1, isToxic: 1 })
 commentSchema.index({ videoId: 1, channelId: 1 })
+
+commentSchema.index({ commentId: 1, workspaceId: 1 }, { unique: true, background: true })
 
 export default mongoose.model('Comment', commentSchema)

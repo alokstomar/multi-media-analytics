@@ -251,6 +251,8 @@ async function aggregateCommentSummary(filter) {
   return normalizeSummaryAggregation(rows)
 }
 
+const syncLocks = new Map()
+
 export async function syncCommentsFromYouTube(channelId, { force = false, maxVideos = 10, maxVolume = 0, workspaceId } = {}) {
   const channelFilter = { channelId }
   if (workspaceId) channelFilter.workspaceId = workspaceId
@@ -259,78 +261,99 @@ export async function syncCommentsFromYouTube(channelId, { force = false, maxVid
 
   const safeMaxVideos = VALID_DEPTHS.includes(maxVideos) ? maxVideos : 10
   const effectiveWorkspaceId = workspaceId || channel.workspaceId
-  const meta = await getCacheMeta(channelId, effectiveWorkspaceId)
-  if (!force && !meta.isStale && meta.count > 0 && meta.lastSyncDepth >= safeMaxVideos) {
-    console.log(`[SYNC] Channel "${channel.title}": using cache (${meta.count} comments, depth=${meta.lastSyncDepth})`)
-    return { synced: false, fromCache: true, count: meta.count, lastFetchedAt: meta.lastFetchedAt, videosScanned: meta.videosScanned }
+  const lockKey = `${effectiveWorkspaceId}:${channelId}`
+
+  if (syncLocks.has(lockKey)) {
+    console.log(`[SYNC] Channel "${channel.title}" sync is already in progress (deduped)`)
+    return {
+      success: true,
+      deduped: true,
+      syncing: true,
+      count: 0,
+      totalComments: 0,
+      message: 'Comment sync already in progress'
+    }
   }
 
-  console.log(`[SYNC] Channel "${channel.title}": fetching from YouTube (maxVideos=${safeMaxVideos})...`)
+  syncLocks.set(lockKey, true)
 
-  const maxPagesPerVideo = maxVolume > 0 ? Math.ceil(maxVolume / (safeMaxVideos * 100)) || 1 : 3
-  const { comments: rawThreads, videosScanned, apiCalls } = await fetchChannelComments(channelId, {
-    maxVideos: safeMaxVideos,
-    maxPagesPerVideo,
-  })
+  try {
+    const meta = await getCacheMeta(channelId, effectiveWorkspaceId)
+    if (!force && !meta.isStale && meta.count > 0 && meta.lastSyncDepth >= safeMaxVideos) {
+      console.log(`[SYNC] Channel "${channel.title}": using cache (${meta.count} comments, depth=${meta.lastSyncDepth})`)
+      return { synced: false, fromCache: true, count: meta.count, totalComments: meta.count, lastFetchedAt: meta.lastFetchedAt, videosScanned: meta.videosScanned }
+    }
 
-  const threads = maxVolume > 0 ? rawThreads.slice(0, maxVolume) : rawThreads
-  const fetchedAt = new Date()
-  const videoIds = [...new Set(threads.map((t) => t.videoId).filter(Boolean))]
-  const videos = videoIds.length ? await Video.find({ videoId: { $in: videoIds } }).lean() : []
-  const videoMap = Object.fromEntries(videos.map((v) => [v.videoId, v]))
+    console.log(`[SYNC] Channel "${channel.title}": fetching from YouTube (maxVideos=${safeMaxVideos})...`)
 
-  const bulkOps = threads.map((thread) => {
-    const analysis = analyzeComment(thread.text, { likeCount: thread.likeCount })
-    const video = thread.videoId ? videoMap[thread.videoId] : null
-    const topics = extractTopics(thread.text)
-    const isQuestion = analysis.sentiment === 'Question' || thread.text.includes('?')
-    const isViral = analysis.aiScore >= 90 && thread.likeCount >= 5
+    const maxPagesPerVideo = maxVolume > 0 ? Math.ceil(maxVolume / (safeMaxVideos * 100)) || 1 : 3
+    const { comments: rawThreads, videosScanned, apiCalls } = await fetchChannelComments(channelId, {
+      maxVideos: safeMaxVideos,
+      maxPagesPerVideo,
+    })
+
+    const threads = maxVolume > 0 ? rawThreads.slice(0, maxVolume) : rawThreads
+    const fetchedAt = new Date()
+    const videoIds = [...new Set(threads.map((t) => t.videoId).filter(Boolean))]
+    const videos = videoIds.length ? await Video.find({ videoId: { $in: videoIds } }).lean() : []
+    const videoMap = Object.fromEntries(videos.map((v) => [v.videoId, v]))
+
+    const bulkOps = threads.map((thread) => {
+      const analysis = analyzeComment(thread.text, { likeCount: thread.likeCount })
+      const video = thread.videoId ? videoMap[thread.videoId] : null
+      const topics = extractTopics(thread.text)
+      const isQuestion = analysis.sentiment === 'Question' || thread.text.includes('?')
+      const isViral = analysis.aiScore >= 90 && thread.likeCount >= 5
+
+      return {
+        updateOne: {
+          filter: { commentId: thread.commentId, workspaceId: effectiveWorkspaceId },
+          update: {
+            $set: {
+              commentId: thread.commentId,
+              workspaceId: effectiveWorkspaceId,
+              channelId,
+              channelName: channel.title,
+              videoId: thread.videoId,
+              authorDisplayName: thread.authorDisplayName,
+              authorProfileImageUrl: thread.authorProfileImageUrl,
+              text: thread.text,
+              publishedAt: thread.publishedAt,
+              likeCount: thread.likeCount,
+              videoTitle: video?.title || null,
+              videoThumbnail: video?.thumbnail || null,
+              fetchedAt,
+              syncDepth: safeMaxVideos,
+              topics,
+              isQuestion,
+              isViral,
+              ...analysis,
+            },
+          },
+          upsert: true,
+        },
+      }
+    })
+
+    if (bulkOps.length) {
+      await Comment.bulkWrite(bulkOps)
+    }
+
+    const storedCount = await Comment.countDocuments(scopedFilter(channelId, effectiveWorkspaceId))
+    console.log(`[SYNC] "${channel.title}": ${threads.length} fetched, ${storedCount} total, ${videosScanned} videos, ${apiCalls} API calls`)
 
     return {
-      updateOne: {
-        filter: { commentId: thread.commentId },
-        update: {
-          $set: {
-            commentId: thread.commentId,
-            workspaceId: effectiveWorkspaceId,
-            channelId,
-            channelName: channel.title,
-            videoId: thread.videoId,
-            authorDisplayName: thread.authorDisplayName,
-            authorProfileImageUrl: thread.authorProfileImageUrl,
-            text: thread.text,
-            publishedAt: thread.publishedAt,
-            likeCount: thread.likeCount,
-            videoTitle: video?.title || null,
-            videoThumbnail: video?.thumbnail || null,
-            fetchedAt,
-            syncDepth: safeMaxVideos,
-            topics,
-            isQuestion,
-            isViral,
-            ...analysis,
-          },
-        },
-        upsert: true,
-      },
+      synced: true,
+      fromCache: false,
+      count: threads.length,
+      totalComments: threads.length,
+      totalInDb: storedCount,
+      videosScanned,
+      apiCalls,
+      lastFetchedAt: fetchedAt,
     }
-  })
-
-  if (bulkOps.length) {
-    await Comment.bulkWrite(bulkOps)
-  }
-
-  const storedCount = await Comment.countDocuments(scopedFilter(channelId, effectiveWorkspaceId))
-  console.log(`[SYNC] "${channel.title}": ${threads.length} fetched, ${storedCount} total, ${videosScanned} videos, ${apiCalls} API calls`)
-
-  return {
-    synced: true,
-    fromCache: false,
-    count: threads.length,
-    totalInDb: storedCount,
-    videosScanned,
-    apiCalls,
-    lastFetchedAt: fetchedAt,
+  } finally {
+    syncLocks.delete(lockKey)
   }
 }
 

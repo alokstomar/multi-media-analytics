@@ -137,20 +137,25 @@ export default function Comments() {
   const pollRef = useRef(null)
   const pollAttempts = useRef(0)
   const fetchDataRef = useRef(null)
+  const syncStartedRef = useRef(false)
+
   useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+
+  const MAX_POLL_ATTEMPTS = 10
 
   function scheduleSyncPoll(triggered) {
     if (pollRef.current) {
       clearTimeout(pollRef.current)
       pollRef.current = null
     }
-    if (triggered && pollAttempts.current < 6) {
+    if (triggered && pollAttempts.current < MAX_POLL_ATTEMPTS) {
       pollAttempts.current += 1
       setAutoSyncing(true)
       pollRef.current = setTimeout(() => fetchDataRef.current?.({ page: 1 }), 5000)
     } else {
       pollAttempts.current = 0
       setAutoSyncing(false)
+      syncStartedRef.current = false
     }
   }
 
@@ -516,6 +521,26 @@ export default function Comments() {
           setComments(commentsRes.data || [])
           setPagination(commentsRes.pagination || { page: 1, total: 0, totalPages: 1 })
 
+          const totalComments = commentsRes.pagination?.total || summaryRes.data?.stats?.totalComments || commentsRes.data?.length || 0
+          if (totalComments > 0) {
+            syncStartedRef.current = false
+          }
+
+          if ((commentsRes?.syncTriggered || summaryRes?.syncTriggered) && !syncStartedRef.current) {
+            syncStartedRef.current = true
+            ;(async () => {
+              try {
+                await Promise.all(
+                  ids.map((id) => refreshComments(id, { maxVideos, maxVolume }))
+                )
+              } catch (e) {
+                console.error("Auto portfolio refresh failed:", e)
+              } finally {
+                scheduleSyncPoll(true)
+              }
+            })()
+          }
+
           // Reconstruct cache status from selected channels summaries
           const portfolioData = summaryRes.data || {}
           const summariesList = Object.values(portfolioData.perChannel || {})
@@ -564,6 +589,24 @@ export default function Comments() {
           setPagination(commentsRes.pagination || { page: 1, total: 0, totalPages: 1 })
           setSummary(summaryRes.data || null)
           setSyncStatus(summaryRes.data?.cache || null)
+
+          const totalComments = commentsRes.pagination?.total || summaryRes.data?.stats?.totalComments || commentsRes.data?.length || 0
+          if (totalComments > 0) {
+            syncStartedRef.current = false
+          }
+
+          if ((commentsRes?.syncTriggered || summaryRes?.syncTriggered) && !syncStartedRef.current) {
+            syncStartedRef.current = true
+            ;(async () => {
+              try {
+                await refreshComments(activeChannelId, { maxVideos, maxVolume })
+              } catch (e) {
+                console.error("Auto refresh comments error:", e)
+              } finally {
+                scheduleSyncPoll(true)
+              }
+            })()
+          }
         }
       }
     } catch (err) {
@@ -575,6 +618,10 @@ export default function Comments() {
       setLoading(false)
     }
   }, [selectedPlatform, allChannels, activeChannel, portfolioMode, selectedChannelIds, activeChannelId, page, limit, activeTab, debouncedSearch, timeRange, maxVideos, maxVolume, language])
+
+  useEffect(() => {
+    fetchDataRef.current = fetchData
+  }, [fetchData])
 
   useEffect(() => {
     fetchData()

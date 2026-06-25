@@ -4,6 +4,7 @@ import {
   getMultiChannelComments,
   getMultiChannelSummary,
   enqueueCommentSync,
+  syncCommentsFromYouTube,
 } from '../services/commentService.js'
 import Channel from '../models/Channel.js'
 import { AppError } from '../utils/errorHandler.js'
@@ -32,12 +33,7 @@ function maybeTriggerSync(channelId, workspaceId) {
   const last = recentSyncTriggers.get(channelId) || 0
   if (Date.now() - last < SYNC_TRIGGER_COOLDOWN_MS) return false
   recentSyncTriggers.set(channelId, Date.now())
-  try {
-    enqueueCommentSync(channelId, { workspaceId })
-    return true
-  } catch {
-    return false
-  }
+  return true
 }
 
 export async function listChannelComments(req, res, next) {
@@ -74,6 +70,7 @@ export async function getChannelCommentsSummary(req, res, next) {
 }
 
 export async function refreshChannelComments(req, res, next) {
+  let timeoutId
   try {
     const { id } = req.params
     const maxVideos = parseDepth(req.body?.maxVideos || req.query.maxVideos)
@@ -82,10 +79,37 @@ export async function refreshChannelComments(req, res, next) {
     const channel = await Channel.findOne({ channelId: id, workspaceId: req.workspaceId })
     if (!channel) throw new AppError('Channel not found or not in workspace', 404)
 
-    const result = enqueueCommentSync(id, { maxVideos, maxVolume, workspaceId: req.workspaceId })
-    res.status(202).json({ success: true, data: result })
+    const syncPromise = syncCommentsFromYouTube(id, {
+      force: true,
+      maxVideos,
+      maxVolume,
+      workspaceId: req.workspaceId
+    })
+
+    const result = await Promise.race([
+      syncPromise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error('Comment sync timeout')),
+          50000
+        )
+      })
+    ])
+
+    return res.json({
+      success: true,
+      synced: true,
+      deduped: result.deduped || false,
+      commentsAdded: result.count || 0,
+      totalComments: result.totalComments || 0,
+      message: result.deduped
+        ? 'Comment sync already in progress'
+        : 'Comments synced successfully'
+    })
   } catch (err) {
     next(err)
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 
