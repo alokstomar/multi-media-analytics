@@ -20,7 +20,7 @@ const PROVIDER_METHOD_NAMES = [
   'generateLinkedInPost', 'generateThoughtLeadership',
   'analyzeLinkedInPost', 'discoverIndustryTrends', 'repurposeContent',
   // Priority 1 — YouTube Content Intelligence
-  'analyzeTitle', 'analyzeThumbnail',
+  'analyzeTitle', 'analyzeThumbnail', 'analyzeScript',
   'generateVideoIdeas', 'generateShortsIdeas',
   'getStrategistTips', 'getContentGaps', 'summarizeAlerts',
   // Portfolio Intelligence

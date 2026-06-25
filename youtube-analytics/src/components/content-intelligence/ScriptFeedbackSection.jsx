@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp, FileText, Sparkles, Check, Play, AlertTriangle } from 'lucide-react'
 import { useAnalytics } from '../../context/AnalyticsContext'
 import { analyzeScript } from '../../services/api'
-import { LoadingState, ErrorState, isAiUnavailable } from './StateShells'
+import { LoadingState, ErrorState } from './StateShells'
 
 export default function ScriptFeedbackSection() {
   const [isOpen, setIsOpen] = useState(false)
@@ -17,9 +17,23 @@ export default function ScriptFeedbackSection() {
     if (!scriptInput.trim()) return
     setStatus('loading')
     setAnalysisResult(null)
+    setErrorMsg('')
+
+    const payload = {
+      script: scriptInput,
+      channelId: activeChannelId || undefined
+    }
+
+    console.log('Sending Script Feedback request:', {
+      scriptLength: scriptInput.length,
+      selectedChannelId: activeChannelId || null,
+      payload
+    })
+
     try {
-      const res = await analyzeScript({ script: scriptInput, channelId: activeChannelId || undefined })
-      const d = res?.data
+      const response = await analyzeScript(payload)
+      console.log('Script analysis response:', response)
+      const d = response?.data
       if (d && d.viral != null) {
         setAnalysisResult(d)
         setStatus('success')
@@ -28,8 +42,13 @@ export default function ScriptFeedbackSection() {
         setStatus('error')
       }
     } catch (err) {
+      console.error('Script analysis error:', err.response?.data || err)
       setAnalysisResult(null)
-      setErrorMsg(isAiUnavailable(err) ? 'AI service temporarily unavailable' : 'Failed to analyze script')
+      const message =
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message
+      setErrorMsg(message)
       setStatus('error')
     }
   }

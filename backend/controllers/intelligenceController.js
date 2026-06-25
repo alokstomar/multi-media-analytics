@@ -148,7 +148,49 @@ export async function analyzeThumbnail(req, res, next) {
 
 export async function analyzeScript(req, res, next) {
   try {
-    const cacheKey = contentCacheKey(req.body?.script, 'script')
+    const providerName = getActiveProviderName()
+    let activeModel = 'unknown'
+    if (providerName === 'openai') {
+      activeModel = process.env.OPENAI_FAST_MODEL || 'gpt-5-mini'
+    } else if (providerName === 'gemini') {
+      activeModel = process.env.GEMINI_FAST_MODEL || 'gemini-2.0-flash'
+    } else if (providerName === 'groq') {
+      activeModel = process.env.GROQ_MODEL || 'llama-3.1-70b-versatile'
+    } else if (providerName === 'stub') {
+      activeModel = 'stub-model'
+    }
+
+    console.log('[AI Script Analyzer] Route handler invoked:', {
+      authenticatedUser: req.user?._id?.toString() || null,
+      workspaceId: req.workspaceId || null,
+      scriptLength: req.body?.script?.length || 0,
+      selectedChannelId: req.body?.channelId || null,
+      providerName,
+      activeModel
+    })
+
+    const script = req.body?.script
+    if (!script || !script.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'SCRIPT_REQUIRED',
+          message: 'Script content is required and cannot be empty.'
+        }
+      })
+    }
+
+    if (script.length <= 20) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'SCRIPT_TOO_SHORT',
+          message: 'Script content must be longer than 20 characters to analyze pacing.'
+        }
+      })
+    }
+
+    const cacheKey = contentCacheKey(script, 'script')
     const result = await cachedAI(cacheKey, 'analyze-script', () =>
       getAIProvider().analyzeScript(req.body, { feature: 'analyze-script' }),
     )

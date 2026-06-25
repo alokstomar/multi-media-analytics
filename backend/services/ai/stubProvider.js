@@ -358,6 +358,46 @@ export class StubAIProvider extends AIProviderInterface {
     }
   }
 
+  async analyzeScript(payload = {}) {
+    const script = payload.script || ''
+    const { slice } = seededRandom('script::' + script.slice(0, 200))
+
+    const viral = Math.round(65 + slice(0) * 30) // 65-95
+    const retention = Math.round(55 + slice(4) * 35) // 55-90
+    const interest = Math.round(60 + slice(8) * 35) // 60-95
+    const watchTime = parseFloat((2.5 + slice(12) * 6).toFixed(1)) // 2.5-8.5
+
+    return {
+      viral,
+      retention,
+      interest,
+      watchTime,
+      weakSections: [
+        {
+          time: '0:15',
+          problem: 'Pacing slows down during the transition from the hook to the main topic.',
+          fix: 'Cut the 10-second background explanation and jump directly into the first major point.',
+        },
+        {
+          time: '2:30',
+          problem: 'Visual pacing lag. The script does not prompt any visual changes or B-roll for a long stretch.',
+          fix: 'Insert a quick pattern interrupt (zoomed crop or pop-up graphic) to keep retention high.',
+        }
+      ],
+      rewrites: [
+        {
+          original: (script.slice(0, 100) || 'Welcome back to the channel. Today we are talking about this topic.').trim(),
+          alternative: 'This single mistake is ruining your progress. And in this video, I will show you exactly how to fix it.',
+        }
+      ],
+      hooks: [
+        'Deliver the core curiosity payoff within the first 15 seconds.',
+        'Use high-energy pattern interrupts every 8-12 seconds to reset the audience\'s attention span.',
+        'Place the first call-to-action exactly at the 50% mark when audience value is highest.',
+      ]
+    }
+  }
+
   async generateVideoIdeas(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || 'demo'
     const channel = ctx.channel || {}

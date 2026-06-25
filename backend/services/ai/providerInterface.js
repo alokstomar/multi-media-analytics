@@ -53,6 +53,10 @@ export class AIProviderInterface {
     throw new Error('analyzeThumbnail() not implemented')
   }
 
+  async analyzeScript(payload, opts) {
+    throw new Error('analyzeScript() not implemented')
+  }
+
   async generateVideoIdeas(ctx, opts) {
     throw new Error('generateVideoIdeas() not implemented')
   }

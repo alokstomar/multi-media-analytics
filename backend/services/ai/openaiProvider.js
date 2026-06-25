@@ -31,6 +31,7 @@ const CACHE_TTL = {
   // Priority 1 — Content Intelligence
   analyzeTitle: 48,
   analyzeThumbnail: 48,
+  analyzeScript: 48,
   generateVideoIdeas: 12,
   generateShortsIdeas: 12,
   getStrategistTips: 6,
@@ -147,6 +148,16 @@ const VALIDATORS = {
       && typeof obj.overallScore === 'number'
       && Array.isArray(obj.suggestions)
       && Array.isArray(obj.variants)
+  },
+  analyzeScript(obj) {
+    return obj
+      && typeof obj.viral === 'number'
+      && typeof obj.retention === 'number'
+      && typeof obj.interest === 'number'
+      && typeof obj.watchTime === 'number'
+      && Array.isArray(obj.weakSections)
+      && Array.isArray(obj.rewrites)
+      && Array.isArray(obj.hooks)
   },
   analyzeThumbnail(obj) {
     return obj
@@ -705,6 +716,49 @@ Variants must each be under 70 characters and CTR-optimized.`
     return this._execute('analyzeTitle', { title: title.substring(0, 200) }, systemPrompt, userPrompt, {
       temperature: 0.4,
     })
+  }
+
+  async analyzeScript(payload = {}) {
+    const script = (payload.script || '').toString().trim()
+    if (!script) throw new Error('analyzeScript requires a non-empty script')
+
+    const systemPrompt = `You are a YouTube script pacing and retention specialist who has analyzed retention graphs of thousands of highly successful videos.
+Return ONLY valid JSON with this exact structure:
+{
+  "viral": <number 0-100, overall virality potential score>,
+  "retention": <number 0-100, estimated overall retention score>,
+  "interest": <number 0-100, audience interest score>,
+  "watchTime": <number, forecast average watch time in minutes>,
+  "weakSections": [
+    {
+      "time": "<estimated time stamp, e.g. 0:15 or 1:40>",
+      "problem": "<short description of the pacing/interest drop problem>",
+      "fix": "<specific actionable advice on how to rewrite or edit this section to maintain viewer retention>"
+    }
+  ],
+  "rewrites": [
+    {
+      "original": "<precise short quote of the weak opening hook or drop-off sentence>",
+      "alternative": "<completely rewritten high-impact CTR-optimized or retention-optimized script section>"
+    }
+  ],
+  "hooks": [
+    "<general rule 1 for hook delivery/pacing>",
+    "<general rule 2 for hook delivery/pacing>"
+  ]
+}
+Be rigorous, analytical, and critical. Focus on identifying precise locations in the script where audience attention is likely to drop.`
+
+    const userPrompt = `Analyze the pacing and storytelling of this YouTube video script:\n\n"${script}"`
+
+    try {
+      return await this._execute('analyzeScript', { script: script.substring(0, 2000) }, systemPrompt, userPrompt, {
+        temperature: 0.6,
+      })
+    } catch (error) {
+      console.error('Script Analysis Provider Error:', error)
+      throw error
+    }
   }
 
   async analyzeThumbnail(payload = {}) {
