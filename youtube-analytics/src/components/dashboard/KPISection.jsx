@@ -4,7 +4,6 @@ import useCountUp from '../../hooks/useCountUp'
 import { getDashboard } from '../../services/api'
 import { KPISkeleton, ErrorBanner } from '../ui/Skeleton'
 
-const TABS = ['Overview', 'Videos', 'Audience', 'Engagement', 'SEO', 'Revenue']
 
 function formatValue(v) {
   if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`
@@ -42,7 +41,6 @@ function KPICard({ card, index }) {
 
 export default function KPISection({ channelId, overrideCards }) {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('Overview')
   const [compareMode, setCompareMode] = useState(false)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -68,22 +66,10 @@ export default function KPISection({ channelId, overrideCards }) {
   if (overrideCards) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-gray-200">
-          <nav className="-mb-px flex gap-6">
-            {['Overview', 'Posts', 'Audience', 'Engagement', 'SEO', 'Revenue'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`border-b-2 pb-3 text-sm transition-all duration-200 ${
-                  activeTab === tab
-                    ? 'border-blue-600 font-semibold text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </nav>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            Overview
+          </h1>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -163,22 +149,10 @@ export default function KPISection({ channelId, overrideCards }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between border-b border-gray-200">
-        <nav className="-mb-px flex gap-6">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`border-b-2 pb-3 text-sm transition-all duration-200 ${
-                activeTab === tab
-                  ? 'border-blue-600 font-semibold text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </nav>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+          Overview
+        </h1>
 
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-600">Compare Mode</span>
