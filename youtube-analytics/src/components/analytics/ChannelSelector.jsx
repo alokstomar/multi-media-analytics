@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { BadgeCheck, ArrowUpRight, Plus } from 'lucide-react'
+import { BadgeCheck, ArrowUpRight } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
 
 export default function ChannelSelector() {
@@ -128,23 +128,7 @@ export default function ChannelSelector() {
           )
         })}
 
-        {/* Add Channel card */}
-        <motion.button
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: channels.length * 0.06 }}
-          whileHover={{ y: -3, transition: { duration: 0.2 } }}
-          whileTap={{ scale: 0.97 }}
-          className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-gray-200 px-6 min-w-[150px] text-center hover:border-gray-300 hover:bg-gray-50/50 transition-all duration-200 cursor-pointer"
-        >
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-dashed border-gray-300 text-gray-300">
-            <Plus className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-[12px] font-semibold text-gray-500">Add Channel</p>
-            <p className="text-[10px] text-gray-300">Connect new channel</p>
-          </div>
-        </motion.button>
+
       </div>
     </motion.div>
   )
