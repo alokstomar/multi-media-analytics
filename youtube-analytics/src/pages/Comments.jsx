@@ -14,6 +14,7 @@ import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
 import ChannelSelector from '../components/analytics/ChannelSelector'
 import ChannelStrip from '../components/portfolio/ChannelStrip'
+import InstagramCommentsIntelligence from '../components/instagram/CommentsIntelligence'
 import {
   getComments,
   getCommentsSummary,
@@ -97,6 +98,13 @@ function CommentSkeleton() {
 // ── Main Component ────────────────────────────────────────
 export default function Comments() {
   const { selectedPlatform } = usePlatform()
+
+  // Instagram renders a dedicated, IG-isolated Comments component. The YouTube
+  // flow below is untouched.
+  if (selectedPlatform === 'instagram') {
+    return <InstagramCommentsIntelligence />
+  }
+
   const {
     activeAccountId: activeChannelId,
     activeAccount: activeChannel,
