@@ -11,8 +11,9 @@ import {
 } from 'recharts'
 import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
-import { getVideos, getAnalytics, getInsights, getInstagramPosts } from '../services/api'
+import { getVideos, getAnalytics, getInsights } from '../services/api'
 import ChannelSelector from '../components/analytics/ChannelSelector'
+import InstagramPostsList from '../components/instagram/PostsList'
 import { fmt } from '../utils/format'
 import { seededFloat, seededInt } from '../utils/deterministic'
 import { exportToCSV } from '../utils/csvExport'
@@ -34,11 +35,18 @@ const iconMap = { video: Video, eye: Eye, cursor: MousePointerClick, clock: Cloc
 /* ═══════════════════════════════════════════════════════════════ */
 export default function Videos() {
   const { selectedPlatform } = usePlatform()
-  const { 
-    activeAccountId, 
-    activeAccount: activeChannel, 
-    loading: isTransitioning, 
-    analyticsData 
+
+  // Instagram renders a dedicated, IG-isolated Posts component. The YouTube
+  // flow below is untouched.
+  if (selectedPlatform === 'instagram') {
+    return <InstagramPostsList />
+  }
+
+  const {
+    activeAccountId,
+    activeAccount: activeChannel,
+    loading: isTransitioning,
+    analyticsData
   } = usePlatformAdapter()
 
   const [search, setSearch] = useState('')
@@ -50,10 +58,7 @@ export default function Videos() {
   const [showSort, setShowSort] = useState(false)
   const [showFilter, setShowFilter] = useState(false)
 
-  const SORT_OPTIONS = selectedPlatform === 'instagram'
-    ? ['Views', 'Engagement', 'Date']
-    : ['Views', 'Engagement', 'CTR', 'Viral Score', 'Retention', 'Date']
-  
+  const SORT_OPTIONS = ['Views', 'Engagement', 'CTR', 'Viral Score', 'Retention', 'Date']
   const FILTER_OPTIONS = ['All', 'Trending', 'High Engagement', 'Viral', 'Stable']
 
   // Fetch videos from API when channel changes
@@ -64,21 +69,13 @@ export default function Videos() {
       return
     }
     setVideosLoading(true)
-
-    if (selectedPlatform === 'instagram') {
-      getInstagramPosts(activeAccountId)
-        .then((res) => setApiVideos(res.data || []))
-        .catch(() => setApiVideos([]))
-        .finally(() => setVideosLoading(false))
-    } else {
-      getVideos(activeAccountId, { limit: 20 })
-        .then((res) => setApiVideos(res.data || []))
-        .catch(() => setApiVideos([]))
-        .finally(() => setVideosLoading(false))
-    }
+    getVideos(activeAccountId, { limit: 20 })
+      .then((res) => setApiVideos(res.data || []))
+      .catch(() => setApiVideos([]))
+      .finally(() => setVideosLoading(false))
   }
 
-  useEffect(refreshVideos, [activeAccountId, selectedPlatform])
+  useEffect(refreshVideos, [activeAccountId])
 
   const searchRef = useRef(null)
 
@@ -99,17 +96,7 @@ export default function Videos() {
   // Build stats from API overview
   const stats = useMemo(() => {
     const eng = overview.engagementRate || 0
-    const growth = overview.viewsGrowth || overview.reachGrowth || 0
-
-    if (selectedPlatform === 'instagram') {
-      return [
-        { label: 'Total Posts', value: String(overview.postsCount || apiVideos.length), color: '#C13584', icon: 'video', spark: [5, 8, 7, 10, 11, 14, overview.postsCount || 0], trend: `+${(overview.followersGrowth || 0).toFixed(1)}%`, up: (overview.followersGrowth || 0) >= 0 },
-        { label: 'Total Reach', value: fmt(overview.reach || 0), color: '#E1306C', icon: 'eye', spark: [10, 15, 24, 30, 42, 55, 60], trend: `+${(overview.reachGrowth || 0).toFixed(1)}%`, up: (overview.reachGrowth || 0) >= 0 },
-        { label: 'Avg Reach', value: fmt(Math.round((overview.reach || 0) / (overview.postsCount || 10))), color: '#F77737', icon: 'cursor', spark: [8, 12, 10, 14, 11, 15, 12], trend: `+${(overview.engGrowth || 0).toFixed(1)}%`, up: (overview.engGrowth || 0) >= 0 },
-        { label: 'Total Saves', value: fmt(overview.saves || 0), color: '#FCAF45', icon: 'clock', spark: [4, 8, 12, 15, 18, 22, 25], trend: `+${((overview.reachGrowth || 0) * 0.9).toFixed(1)}%`, up: (overview.reachGrowth || 0) >= 0 },
-        { label: 'Engagement', value: `${eng.toFixed(1)}%`, color: '#833AB4', icon: 'flame', spark: [3.2, 3.5, 3.8, 4.1, 3.9, 4.3, eng], trend: `+${(overview.engGrowth || 0).toFixed(1)}%`, up: (overview.engGrowth || 0) >= 0 },
-      ]
-    }
+    const growth = overview.viewsGrowth || 0
 
     return [
       { label: 'Total Videos', value: String(overview.totalVideos || apiVideos.length), color: '#3B82F6', icon: 'video', spark: [10, 12, 8, 14, 11, 13, overview.totalVideos || 0], trend: growth >= 0 ? `+${growth.toFixed(1)}%` : `${growth.toFixed(1)}%`, up: growth >= 0 },
@@ -118,46 +105,15 @@ export default function Videos() {
       { label: 'Watch Time', value: fmt(Math.round((overview.totalViews || 0) * 0.08)), color: '#3B82F6', icon: 'clock', spark: [5, 8, 10, 12, 9, 14, 16], trend: growth >= 0 ? `+${(growth * 0.8).toFixed(1)}%` : `${(growth * 0.8).toFixed(1)}%`, up: growth >= 0 },
       { label: 'Engagement', value: `${eng.toFixed(1)}%`, color: '#8B5CF6', icon: 'flame', spark: [3.2, 3.5, 3.8, 4.1, 3.9, 4.3, eng], trend: eng >= 3 ? '+0.5%' : '-0.3%', up: eng >= 3 },
     ]
-  }, [overview, apiVideos.length, selectedPlatform])
+  }, [overview, apiVideos.length])
 
   // Transform API videos to table format
   const videos = useMemo(() => {
     if (!apiVideos.length) return []
-    const avgViews = apiVideos.reduce((s, v) => s + (v.views || v.reach || 0), 0) / apiVideos.length
+    const avgViews = apiVideos.reduce((s, v) => s + (v.views || 0), 0) / apiVideos.length
 
     // First, map all raw videos to UI-formatted videos
     let mapped = apiVideos.map((v, i) => {
-      if (selectedPlatform === 'instagram') {
-        const eng = v.engagementRate || 0
-        return {
-          id: v.id || v._id || i,
-          title: v.caption || 'No caption',
-          thumb: v.thumbnail || `https://ui-avatars.com/api/?name=P${i}&background=random&size=60`,
-          status: v.likes > avgViews * 1.5 ? 'Trending' : v.likes > avgViews ? 'Active' : 'Normal',
-          statusColor: v.likes > avgViews * 1.5 ? '#E1306C' : v.likes > avgViews ? '#833AB4' : '#6B7280',
-          date: v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
-          dateRaw: v.publishedAt ? new Date(v.publishedAt).getTime() : 0,
-          viewsRaw: v.reach || 0,
-          views: fmt(v.reach || 0),
-          viewsTrend: (v.reach || 0) > avgViews ? `+${(((v.reach || 0) / avgViews - 1) * 100).toFixed(0)}%` : `${(((v.reach || 0) / avgViews - 1) * 100).toFixed(0)}%`,
-          ctrRaw: 0,
-          ctr: fmt(v.saves || 0), // Represents saves
-          saves: fmt(v.saves || 0),
-          ctrTrend: '+1.5%',
-          watchTimeRaw: v.likes || 0,
-          watchTime: fmt(v.likes || 0), // Represents likes
-          likes: fmt(v.likes || 0),
-          wtTrend: '+2.8%',
-          engagementRaw: eng,
-          engagement: `${eng}%`,
-          engTrend: '+0.5%',
-          retention: 0,
-          shares: fmt(v.shares || 0),
-          type: v.type || 'Post',
-          viralScore: 0,
-        }
-      }
-
       const eng = v.views > 0 ? ((v.likes + v.comments) / v.views * 100) : 0
       const ctr = v.views > 0 ? seededFloat(`${v.videoId || v._id || i}-ctr`, 3, 8) : 0
       const retention = Math.max(20, Math.min(80, 40 + eng * 5 + seededFloat(`${v.videoId || v._id || i}-ret`, 0, 10)))
@@ -217,7 +173,7 @@ export default function Videos() {
     })
 
     return mapped
-  }, [apiVideos, search, sortBy, filter, selectedPlatform])
+  }, [apiVideos, search, sortBy, filter])
 
   // Derive bottom chart data from real videos
   const uploadFrequency = useMemo(() => {
@@ -255,18 +211,11 @@ export default function Videos() {
     if (!apiVideos.length) {
       return [{ name: 'No data', value: 100, color: '#E5E7EB' }]
     }
-    const types = selectedPlatform === 'instagram'
-      ? ['Reel', 'Carousel', 'Image', 'Story']
-      : ['Long Form', 'Shorts', 'Live', 'Collab', 'Solo']
-    const colors = selectedPlatform === 'instagram'
-      ? ['#833AB4', '#E1306C', '#C13584', '#FCAF45']
-      : ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444']
+    const types = ['Long Form', 'Shorts', 'Live', 'Collab', 'Solo']
+    const colors = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444']
     const counts = {}
     apiVideos.forEach((v, i) => {
-      const defaultType = selectedPlatform === 'instagram' ? 'Reel' : 'Long Form'
-      const t = selectedPlatform === 'instagram'
-        ? (v.type || defaultType)
-        : types[seededInt(`ct-${v.videoId || i}`, 0, types.length - 1)]
+      const t = types[seededInt(`ct-${v.videoId || i}`, 0, types.length - 1)]
       counts[t] = (counts[t] || 0) + 1
     })
     const total = Object.values(counts).reduce((s, c) => s + c, 0)
@@ -275,20 +224,18 @@ export default function Videos() {
       value: Math.round((count / total) * 100),
       color: colors[types.indexOf(name)] || colors[i % colors.length],
     }))
-  }, [apiVideos, selectedPlatform])
+  }, [apiVideos])
 
   const topFormats = useMemo(() => {
     if (!apiVideos.length) {
       return [{ name: 'N/A', retention: 0 }]
     }
-    const formats = selectedPlatform === 'instagram'
-      ? ['Reel', 'Carousel', 'Image', 'Story']
-      : ['Long Form', 'Shorts', 'Tutorial', 'Review', 'Vlog']
+    const formats = ['Long Form', 'Shorts', 'Tutorial', 'Review', 'Vlog']
     return formats.map((name, i) => ({
       name,
       retention: Math.round(seededFloat(`tf-${activeAccountId}-${i}`, 30, 60)),
     })).sort((a, b) => b.retention - a.retention)
-  }, [apiVideos, activeAccountId, selectedPlatform])
+  }, [apiVideos, activeAccountId])
 
   // Build AI insights from channel insights
   const insights = useMemo(() => {
@@ -346,14 +293,8 @@ export default function Videos() {
       {/* ── Page Header ─────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {selectedPlatform === 'instagram' ? 'Posts' : 'Videos'}
-          </h1>
-          <p className="text-sm text-gray-500">
-            {selectedPlatform === 'instagram' 
-              ? 'Manage and analyze your Instagram posts' 
-              : 'Manage and analyze your channel videos'}
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Videos</h1>
+          <p className="text-sm text-gray-500">Manage and analyze your channel videos</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -362,7 +303,7 @@ export default function Videos() {
             <input
               type="text"
               ref={searchRef}
-              placeholder={selectedPlatform === 'instagram' ? 'Search posts...' : 'Search videos...'}
+              placeholder="Search videos..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-10 w-56 rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-300 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all"
@@ -385,7 +326,7 @@ export default function Videos() {
               <SlidersHorizontal className="h-3.5 w-3.5" />
               {filter === 'All' ? 'Filters' : `Filter: ${filter}`}
             </button>
-            
+
             {showFilter && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowFilter(false)} />
@@ -422,7 +363,7 @@ export default function Videos() {
               Sort by: {sortBy}
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            
+
             {showSort && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowSort(false)} />
@@ -447,22 +388,14 @@ export default function Videos() {
 
           {/* Export */}
           <button onClick={() => exportToCSV(
-            `${selectedPlatform === 'instagram' ? 'posts' : 'videos'}-${activeChannel?.name || 'export'}`, 
-            selectedPlatform === 'instagram' 
-              ? [
-                  { key: 'title', label: 'Caption' },
-                  { key: 'views', label: 'Reach' },
-                  { key: 'watchTime', label: 'Likes' },
-                  { key: 'engagement', label: 'Engagement' },
-                  { key: 'type', label: 'Type' },
-                ]
-              : [
-                  { key: 'title', label: 'Title' },
-                  { key: 'views', label: 'Views' },
-                  { key: 'ctr', label: 'CTR' },
-                  { key: 'engagement', label: 'Engagement' },
-                  { key: 'viralScore', label: 'Viral Score' },
-                ],
+            `videos-${activeChannel?.name || 'export'}`,
+            [
+              { key: 'title', label: 'Title' },
+              { key: 'views', label: 'Views' },
+              { key: 'ctr', label: 'CTR' },
+              { key: 'engagement', label: 'Engagement' },
+              { key: 'viralScore', label: 'Viral Score' },
+            ],
             videos
           )} className="flex items-center gap-2 h-10 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-500 hover:bg-gray-50 transition cursor-pointer">
             <Download className="h-3.5 w-3.5" />
@@ -542,7 +475,7 @@ export default function Videos() {
 
             {/* ── Table + AI Panel ──────────────────────── */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-              {/* Video/Post Performance Table */}
+              {/* Video Performance Table */}
               <motion.div
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -551,36 +484,30 @@ export default function Videos() {
                 style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)' }}
               >
                 <div className="p-6 pb-4">
-                  <h3 className="text-[17px] font-bold text-gray-900 tracking-tight">
-                    {selectedPlatform === 'instagram' ? 'Post Performance' : 'Video Performance'}
-                  </h3>
+                  <h3 className="text-[17px] font-bold text-gray-900 tracking-tight">Video Performance</h3>
                 </div>
 
                 {/* Header row */}
                 <div className="flex items-center gap-0 px-6 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100/80">
                   <div className="w-[36px] shrink-0">#</div>
-                  <div className="flex-[2.5] min-w-0">{selectedPlatform === 'instagram' ? 'Post' : 'Video'}</div>
-                  <div className="flex-1 text-right">{selectedPlatform === 'instagram' ? 'Reach' : 'Views'}</div>
-                  <div className="flex-[0.7] text-right">{selectedPlatform === 'instagram' ? 'Saves' : 'CTR'}</div>
-                  <div className="flex-1 text-right">{selectedPlatform === 'instagram' ? 'Likes' : 'Watch Time'}</div>
+                  <div className="flex-[2.5] min-w-0">Video</div>
+                  <div className="flex-1 text-right">Views</div>
+                  <div className="flex-[0.7] text-right">CTR</div>
+                  <div className="flex-1 text-right">Watch Time</div>
                   <div className="flex-1 text-right">Engagement</div>
-                  <div className="flex-1 text-center">{selectedPlatform === 'instagram' ? 'Shares' : 'Retention'}</div>
-                  <div className="flex-1 text-center">{selectedPlatform === 'instagram' ? 'Type' : 'Viral Score'}</div>
+                  <div className="flex-1 text-center">Retention</div>
+                  <div className="flex-1 text-center">Viral Score</div>
                 </div>
 
-                {/* Video/Post rows */}
+                {/* Video rows */}
                 {videos.length === 0 ? (
                   <div className="flex flex-col items-center justify-center text-center px-6 py-16">
                     <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 text-gray-300 mb-4">
                       <Video className="h-5 w-5" />
                     </div>
-                    <p className="text-sm font-semibold text-gray-700">
-                      {selectedPlatform === 'instagram' ? 'No posts yet for this account' : 'No videos yet for this channel'}
-                    </p>
+                    <p className="text-sm font-semibold text-gray-700">No videos yet for this channel</p>
                     <p className="text-xs text-gray-400 mt-1 max-w-sm">
-                      {selectedPlatform === 'instagram'
-                        ? 'Pull fresh data from Instagram to populate this table.'
-                        : 'Sync this channel to pull the latest videos from YouTube.'}
+                      Sync this channel to pull the latest videos from YouTube.
                     </p>
                     <button
                       onClick={refreshVideos}
@@ -605,7 +532,7 @@ export default function Videos() {
                         <span className="text-sm font-bold text-gray-300 group-hover:text-gray-400 transition-colors">{i + 1}</span>
                       </div>
 
-                      {/* Video/Post info */}
+                      {/* Video info */}
                       <div className="flex-[2.5] min-w-0 flex items-center gap-3">
                         <img src={v.thumb} alt="" className="h-10 w-10 rounded-xl object-cover shrink-0 ring-1 ring-gray-100" />
                         <div className="min-w-0">
@@ -622,7 +549,7 @@ export default function Videos() {
                         </div>
                       </div>
 
-                      {/* Views/Reach */}
+                      {/* Views */}
                       <div className="flex-1 text-right">
                         <p className="text-[13px] font-semibold text-gray-800">{v.views}</p>
                         <p className={`text-[10px] font-medium ${v.viewsTrend.startsWith('+') ? 'text-emerald-500' : 'text-red-400'}`}>
@@ -630,17 +557,17 @@ export default function Videos() {
                         </p>
                       </div>
 
-                      {/* CTR/Saves */}
+                      {/* CTR */}
                       <div className="flex-[0.7] text-right">
-                        <p className="text-[13px] font-semibold text-gray-800">{selectedPlatform === 'youtube' ? v.ctr : v.saves}</p>
+                        <p className="text-[13px] font-semibold text-gray-800">{v.ctr}</p>
                         <p className={`text-[10px] font-medium ${v.ctrTrend.startsWith('+') ? 'text-emerald-500' : 'text-red-400'}`}>
                           {v.ctrTrend}
                         </p>
                       </div>
 
-                      {/* Watch Time/Likes */}
+                      {/* Watch Time */}
                       <div className="flex-1 text-right">
-                        <p className="text-[13px] font-semibold text-gray-800">{selectedPlatform === 'youtube' ? v.watchTime : v.likes}</p>
+                        <p className="text-[13px] font-semibold text-gray-800">{v.watchTime}</p>
                         <p className={`text-[10px] font-medium ${v.wtTrend.startsWith('+') ? 'text-emerald-500' : 'text-red-400'}`}>
                           {v.wtTrend}
                         </p>
@@ -654,46 +581,32 @@ export default function Videos() {
                         </p>
                       </div>
 
-                      {/* Retention/Shares */}
+                      {/* Retention */}
                       <div className="flex-1 flex items-center justify-center gap-1.5">
-                        {selectedPlatform === 'youtube' ? (
-                          <>
-                            <span className="text-[13px] font-semibold text-gray-800">{v.retention}%</span>
-                            <div className="w-12 bg-gray-100 h-[5px] rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-700"
-                                style={{
-                                  width: `${v.retention}%`,
-                                  backgroundColor: v.retention >= 55 ? '#10B981' : v.retention >= 40 ? '#3B82F6' : '#F59E0B',
-                                }}
-                              />
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-[13px] font-semibold text-gray-800">{v.shares}</span>
-                        )}
+                        <span className="text-[13px] font-semibold text-gray-800">{v.retention}%</span>
+                        <div className="w-12 bg-gray-100 h-[5px] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${v.retention}%`,
+                              backgroundColor: v.retention >= 55 ? '#10B981' : v.retention >= 40 ? '#3B82F6' : '#F59E0B',
+                            }}
+                          />
+                        </div>
                       </div>
 
-                      {/* Viral Score/Type */}
+                      {/* Viral Score */}
                       <div className="flex-1 flex items-center justify-center gap-2">
-                        {selectedPlatform === 'youtube' ? (
-                          <>
-                            <div className="w-16 bg-gray-100 h-[5px] rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-700"
-                                style={{
-                                  width: `${v.viralScore}%`,
-                                  backgroundColor: v.viralScore >= 90 ? '#EF4444' : v.viralScore >= 75 ? '#F59E0B' : v.viralScore >= 50 ? '#3B82F6' : '#9CA3AF',
-                                }}
-                              />
-                            </div>
-                            <span className="text-[13px] font-bold text-gray-700 w-6 text-right">{v.viralScore}</span>
-                          </>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-purple-50 text-purple-600 px-2 py-[2px] text-[10px] font-bold tracking-wide">
-                            {v.type}
-                          </span>
-                        )}
+                        <div className="w-16 bg-gray-100 h-[5px] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${v.viralScore}%`,
+                              backgroundColor: v.viralScore >= 90 ? '#EF4444' : v.viralScore >= 75 ? '#F59E0B' : v.viralScore >= 50 ? '#3B82F6' : '#9CA3AF',
+                            }}
+                          />
+                        </div>
+                        <span className="text-[13px] font-bold text-gray-700 w-6 text-right">{v.viralScore}</span>
                       </div>
                     </motion.div>
                   ))}
@@ -703,7 +616,7 @@ export default function Videos() {
                 {/* View all */}
                 <div className="flex justify-center py-4 border-t border-gray-50">
                   <button className="flex items-center gap-1.5 text-[13px] font-medium text-gray-400 hover:text-gray-600 transition-colors">
-                    {selectedPlatform === 'instagram' ? 'View all posts' : 'View all videos'}
+                    View all videos
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>
                 </div>
