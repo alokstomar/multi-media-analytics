@@ -13,6 +13,7 @@ import intelligenceRoutes from './routes/intelligenceRoutes.js'
 import portfolioRoutes from './routes/portfolioRoutes.js'
 import studioRoutes from './routes/studioRoutes.js'
 import instagramRoutes from './routes/instagramRoutes.js'
+import instagramAlertsRoutes from './routes/instagramAlertsRoutes.js'
 import schedulerRoutes from './routes/schedulerRoutes.js'
 import twitterOAuthRoutes from './routes/twitterOAuthRoutes.js'
 import linkedinOAuthRoutes from './routes/linkedinOAuthRoutes.js'
@@ -84,6 +85,7 @@ app.use('/api/intelligence', aiProtect, intelligenceRoutes)
 app.use('/api/portfolio/intelligence', aiProtect, portfolioRoutes)
 app.use('/api/studio', aiProtect, studioRoutes)
 app.use('/api/instagram', instagramRoutes) // Managed internally (contains public callback)
+app.use('/api/instagram/alerts', instagramAlertsRoutes) // Phase 8: isolated IG alerts engine
 app.use('/api/scheduler', protect, schedulerRoutes)
 app.use('/api/twitter', twitterOAuthRoutes) // Managed internally (contains public callback)
 app.use('/api/linkedin', linkedinOAuthRoutes) // Managed internally (contains public callback)

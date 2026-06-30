@@ -6,6 +6,8 @@ import {
   Calendar, CheckCheck, Inbox, RefreshCw,
 } from 'lucide-react'
 import { usePlatformAdapter } from '../platformAdapters'
+import { usePlatform } from '../hooks/usePlatform'
+import InstagramAlerts from '../components/instagram/InstagramAlerts'
 import ChannelSelector from '../components/analytics/ChannelSelector'
 import { deriveAlerts } from '../utils/deriveAlerts'
 import { summarizeAlerts } from '../services/api'
@@ -22,6 +24,14 @@ const ALERT_TABS = [
 ]
 
 export default function Alerts() {
+  const { selectedPlatform } = usePlatform()
+
+  // Instagram renders a dedicated, IG-isolated alerts engine. The YouTube flow
+  // below is untouched.
+  if (selectedPlatform === 'instagram') {
+    return <InstagramAlerts />
+  }
+
   const {
     activeAccountId: activeChannelId,
     activeAccount: activeChannel,

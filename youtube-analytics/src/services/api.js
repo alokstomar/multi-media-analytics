@@ -548,6 +548,25 @@ export const getInstagramProfileAnalytics = (username, force = false) =>
 export const triggerInstagramAIRecommendations = (username) =>
   api.post(`/api/instagram/recommendations/${username}`).then((r) => r.data)
 
+// ── Instagram Alerts (Phase 8) ─────────────────────────────────────────
+export const getInstagramAlerts = ({ accountId, filter, limit } = {}) =>
+  api
+    .get('/api/instagram/alerts', { params: { accountId, filter, limit } })
+    .then((r) => r.data?.data || { alerts: [], total: 0, counts: { total: 0, critical: 0, unread: 0, viral: 0 } })
+
+export const refreshInstagramAlerts = ({ accountId } = {}) =>
+  api
+    .post('/api/instagram/alerts/refresh', { accountId })
+    .then((r) => r.data?.data || {})
+
+export const markInstagramAlertRead = (id) =>
+  api.post(`/api/instagram/alerts/${id}/read`).then((r) => r.data?.data)
+
+export const markAllInstagramAlertsRead = ({ accountId } = {}) =>
+  api
+    .post('/api/instagram/alerts/read-all', { accountId })
+    .then((r) => r.data?.data || { modifiedCount: 0 })
+
 export const getAIUsageStats = () =>
   api.get('/api/settings/ai-usage').then((r) => r.data)
 
