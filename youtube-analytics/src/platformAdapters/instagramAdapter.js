@@ -222,6 +222,10 @@ export function useInstagramAdapter() {
       retentionEstimated: false,
       retentionSource: '',
       retentionInsights: [],
+      // v1 placeholders — hardcoded distributions, flagged as estimated so the
+      // UI can surface a "Placeholder" badge. Phase 5/6 backend work will
+      // replace these with real audience-endpoint data without changing the
+      // adapter's contract (consumer-visible shape stays identical).
       trafficSources: [
         { name: 'Instagram Explore', value: 45, color: '#3B82F6' },
         { name: 'Home Feed', value: 30, color: '#8B5CF6' },
@@ -229,14 +233,14 @@ export function useInstagramAdapter() {
         { name: 'Direct Messages', value: 6, color: '#F59E0B' },
         { name: 'Profile / Search', value: 4, color: '#10B981' },
       ],
-      trafficEstimated: false,
-      trafficSource: 'Instagram Insights API',
+      trafficEstimated: true,
+      trafficSource: 'Placeholder (backend audience endpoint pending)',
       devices: [
         { name: 'Mobile (iOS)', value: 58, color: '#3B82F6' },
         { name: 'Mobile (Android)', value: 40, color: '#8B5CF6' },
         { name: 'Desktop / Web', value: 2, color: '#10B981' },
       ],
-      devicesEstimated: false,
+      devicesEstimated: true,
       geoData: rawAnalytics?.overview ? [
         { country: 'USA', views: Math.round((rawAnalytics.overview.followers || 0) * 0.4), pct: 40.5, flag: '🇺🇸' },
         { country: 'UK', views: Math.round((rawAnalytics.overview.followers || 0) * 0.15), pct: 15.2, flag: '🇬🇧' },

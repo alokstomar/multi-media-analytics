@@ -1,3 +1,15 @@
+/**
+ * @deprecated Phase 2 (Instagram platform-switcher migration) — this page is
+ * no longer routed. The Instagram Dashboard is now rendered by the dedicated
+ * `components/instagram/InstagramDashboardOverview.jsx`, invoked as an
+ * early-return branch from `pages/Dashboard.jsx` when
+ * `selectedPlatform === 'instagram'`.
+ *
+ * This file is retained intentionally for rollback / reference. Do not add
+ * new features here. Any changes should go in the new component or the
+ * `useInstagramAdapter` adapter.
+ */
+
 import { useState, useEffect } from 'react'
 import {
   Users,
