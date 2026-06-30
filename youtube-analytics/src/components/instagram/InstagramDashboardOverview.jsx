@@ -8,7 +8,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
-import AddChannelSection from '../dashboard/AddChannelSection'
+import AccountCarousel from './AccountCarousel'
 
 // ── Sparkline (lightweight inline SVG, no chart lib) ──────────────────────
 function Sparkline({ values, color = '#8B5CF6' }) {
@@ -220,8 +220,8 @@ export default function InstagramDashboardOverview() {
           )}
         </div>
 
-        {/* Connect new account (shared, platform-aware) */}
-        <AddChannelSection />
+        {/* Connected Accounts carousel + connect affordance (IG-isolated) */}
+        <AccountCarousel />
 
         <div className="border-t border-gray-100" />
 
