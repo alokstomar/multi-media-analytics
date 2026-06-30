@@ -15,6 +15,7 @@ import ChannelLeaderboard from '../components/portfolio/ChannelLeaderboard'
 import AudienceOverlap from '../components/portfolio/AudienceOverlap'
 import ContentGapAnalysis from '../components/portfolio/ContentGapAnalysis'
 import UploadTimeAnalysis from '../components/portfolio/UploadTimeAnalysis'
+import InstagramPortfolioIntelligence from '../components/instagram/InstagramPortfolioIntelligence'
 
 const RANGES = ['7D', '30D', '90D', '1Y']
 const cs = '0 1px 3px rgba(0,0,0,0.03), 0 4px 16px -4px rgba(0,0,0,0.06)'
@@ -28,6 +29,13 @@ const FUTURE_MODULES = [
 export default function PortfolioIntelligence() {
   const [range, setRange] = useState('30D')
   const { selectedPlatform } = usePlatform()
+
+  // Instagram renders a dedicated, IG-isolated portfolio component. The YouTube
+  // flow below is untouched.
+  if (selectedPlatform === 'instagram') {
+    return <InstagramPortfolioIntelligence />
+  }
+
   const { accounts: allChannels } = usePlatformAdapter()
   const [selectedChannelIds, setSelectedChannelIds] = useState([])
 
