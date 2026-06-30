@@ -4,6 +4,7 @@ import { Calendar, Download } from 'lucide-react'
 import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
 import { exportToCSV } from '../utils/csvExport'
+import InstagramAnalytics from '../components/instagram/InstagramAnalytics'
 import ChannelSelector from '../components/analytics/ChannelSelector'
 import AnalyticsSkeleton from '../components/analytics/AnalyticsSkeleton'
 import AnalyticsStats from '../components/analytics/AnalyticsStats'
@@ -29,10 +30,17 @@ const RANGES = ['7D', '30D', '90D', '1Y']
 export default function Analytics() {
   const [range, setRange] = useState('30D')
   const { selectedPlatform } = usePlatform()
-  const { 
-    analyticsData, 
-    loading: isTransitioning, 
-    activeAccount: activeChannel, 
+
+  // Instagram renders a dedicated, IG-isolated Analytics component. The YouTube
+  // flow below is untouched.
+  if (selectedPlatform === 'instagram') {
+    return <InstagramAnalytics />
+  }
+
+  const {
+    analyticsData,
+    loading: isTransitioning,
+    activeAccount: activeChannel,
     accounts: allChannels
   } = usePlatformAdapter()
 
@@ -213,11 +221,6 @@ export default function Analytics() {
             <p className="text-lg font-medium">No connected account</p>
             <p className="text-sm mt-1">Connect an account above to start tracking analytics</p>
           </div>
-        ) : selectedPlatform === 'instagram' && !analyticsData?._raw?.overview ? (
-          <div className="text-center py-16 text-gray-400 bg-white rounded-2xl border border-gray-100 shadow-sm">
-            <p className="text-lg font-medium">No analytics available</p>
-            <p className="text-sm mt-1">Real Instagram provider data is not available. Please verify your API configuration.</p>
-          </div>
         ) : (
           <motion.div
             key={activeChannel.id}
@@ -238,14 +241,12 @@ export default function Analytics() {
               hasEstimates={analyticsData?.performanceHasEstimates}
             />
 
-            {selectedPlatform === 'youtube' && (
-              <RetentionSection
-                data={analyticsData?.retentionData}
-                insights={analyticsData?.retentionInsights}
-                estimated={analyticsData?.retentionEstimated}
-                videoCount={analyticsData?.videoTable?.length}
-              />
-            )}
+            <RetentionSection
+              data={analyticsData?.retentionData}
+              insights={analyticsData?.retentionInsights}
+              estimated={analyticsData?.retentionEstimated}
+              videoCount={analyticsData?.videoTable?.length}
+            />
 
             <TrafficAnalytics
               trafficSources={analyticsData?.trafficSources}
