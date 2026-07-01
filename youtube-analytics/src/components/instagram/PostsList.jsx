@@ -20,7 +20,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
-import { getInstagramPosts } from '../../services/api'
+import { getInstagramReels } from '../../services/api'
 import { fmt } from '../../utils/format'
 import AccountCarousel from './AccountCarousel'
 
@@ -345,12 +345,12 @@ export default function PostsList() {
       if (!silent) setLoading(true)
       setError('')
       try {
-        const res = await getInstagramPosts(activeAccountId)
+        const res = await getInstagramReels(activeAccountId)
         const data = res?.data || []
         // Sort defensively by date desc in case backend order varies
         data.sort((a, b) => {
-          const ta = a.publishedAt ? new Date(a.publishedAt).getTime() : 0
-          const tb = b.publishedAt ? new Date(b.publishedAt).getTime() : 0
+          const ta = a.publishDate ? new Date(a.publishDate).getTime() : 0
+          const tb = b.publishDate ? new Date(b.publishDate).getTime() : 0
           return tb - ta
         })
         setPosts(data)

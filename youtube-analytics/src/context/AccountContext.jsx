@@ -3,10 +3,10 @@ import {
   getInstagramAccounts,
   addInstagramAccount,
   deleteInstagramAccount,
-  getInstagramAnalytics,
-  getInstagramPosts,
-  getInstagramAuthUrl
+  getInstagramProfileAnalytics,
+  getInstagramReels,
 } from '../services/api'
+import { useInstagramSyncPoll } from '../hooks/useInstagramSyncPoll'
 import { usePlatform } from './PlatformContext'
 
 const AccountContext = createContext()
@@ -15,8 +15,7 @@ const FALLBACK_ACCOUNTS = {
   instagram: [
     {
       id: 'demo_ig',
-      accountId: 'demo_ig',
-      username: '@demo_instagram',
+      username: 'demo_ig',
       displayName: 'No Instagram account connected',
       profileImage: 'https://ui-avatars.com/api/?name=Add+Account&background=E1306C&color=fff&size=120',
       followers: 0,
@@ -56,31 +55,32 @@ const FALLBACK_ACCOUNTS = {
   ]
 }
 
+function normalizeUsername(raw) {
+  if (typeof raw !== 'string') return ''
+  return raw.trim().replace(/^@+/, '').toLowerCase()
+}
+
 export function AccountProvider({ children }) {
   const { selectedPlatform } = usePlatform()
-  
-  // Accounts lists per platform
+
   const [accounts, setAccounts] = useState({
     instagram: [],
     twitter: FALLBACK_ACCOUNTS.twitter,
     linkedin: FALLBACK_ACCOUNTS.linkedin,
   })
 
-  // Selected account ID per platform
   const [selectedAccountIds, setSelectedAccountIds] = useState({
     instagram: null,
     twitter: 'demo_tw',
     linkedin: 'demo_li',
   })
 
-  // Analytics data per platform
   const [analyticsData, setAnalyticsData] = useState({
     instagram: null,
     twitter: null,
     linkedin: null,
   })
 
-  // Posts data per platform
   const [postsData, setPostsData] = useState({
     instagram: [],
     twitter: [],
@@ -95,24 +95,25 @@ export function AccountProvider({ children }) {
 
   const [error, setError] = useState(null)
 
-  // Load Instagram accounts from backend
   const loadInstagramAccounts = useCallback(async () => {
     setLoading(prev => ({ ...prev, instagram: true }))
     try {
       const res = await getInstagramAccounts()
-      const raw = res.data || []
-      
+      const raw = res?.data || []
+
       const formatted = raw.map(acc => ({
-        id: acc.accountId,
-        accountId: acc.accountId,
+        id: acc.username,
         username: acc.username,
-        displayName: acc.displayName,
-        profileImage: acc.profileImage,
-        followers: acc.followers,
-        following: acc.following,
-        postsCount: acc.postsCount,
-        category: acc.category,
-        isVerified: acc.isVerified,
+        displayName: acc.fullName || acc.username,
+        profileImage: acc.profilePic || '',
+        followers: acc.followers || 0,
+        following: acc.following || 0,
+        postsCount: acc.postsCount || 0,
+        category: 'Creator',
+        isVerified: !!acc.verified,
+        syncStatus: acc.syncStatus || 'ready',
+        syncError: acc.syncError || '',
+        syncedAt: acc.syncedAt || null,
       }))
 
       setAccounts(prev => ({
@@ -120,14 +121,13 @@ export function AccountProvider({ children }) {
         instagram: formatted.length ? formatted : FALLBACK_ACCOUNTS.instagram
       }))
 
-      // Auto-select first account if none selected
       if (formatted.length) {
         setSelectedAccountIds(prev => {
           const current = prev.instagram
-          const exists = formatted.some(a => a.accountId === current)
+          const exists = formatted.some(a => a.username === current)
           return {
             ...prev,
-            instagram: exists ? current : formatted[0].accountId
+            instagram: exists ? current : formatted[0].username
           }
         })
       } else {
@@ -142,27 +142,16 @@ export function AccountProvider({ children }) {
     }
   }, [])
 
-  // On mount, load Instagram accounts. Also re-load after returning from the
-  // Instagram OAuth callback, which lands at /instagram/accounts?connected=true.
   useEffect(() => {
     loadInstagramAccounts()
   }, [loadInstagramAccounts])
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('connected') === 'true' || params.get('error')) {
-      loadInstagramAccounts()
-    }
-  }, [loadInstagramAccounts])
-
-  // Select account helper
   const setSelectedAccount = useCallback((platform, accountId) => {
     setSelectedAccountIds(prev => ({ ...prev, [platform]: accountId }))
   }, [])
 
-  // Fetch analytics for selected account
-  const fetchInstagramAnalytics = useCallback(async (accountId) => {
-    if (!accountId || accountId === 'demo_ig') {
+  const fetchInstagramAnalytics = useCallback(async (username) => {
+    if (!username || username === 'demo_ig') {
       setAnalyticsData(prev => ({ ...prev, instagram: null }))
       setPostsData(prev => ({ ...prev, instagram: [] }))
       return
@@ -171,21 +160,20 @@ export function AccountProvider({ children }) {
     setLoading(prev => ({ ...prev, instagram: true }))
     setError(null)
     try {
-      const [analyticsRes, postsRes] = await Promise.all([
-        getInstagramAnalytics(accountId),
-        getInstagramPosts(accountId)
+      const [analyticsRes, reelsRes] = await Promise.all([
+        getInstagramProfileAnalytics(username).catch(() => null),
+        getInstagramReels(username).catch(() => null),
       ])
 
-      if (analyticsRes?.success) {
-        setAnalyticsData(prev => ({ ...prev, instagram: analyticsRes.data }))
+      const analytics = analyticsRes?.data
+      const reels = reelsRes?.data || []
+
+      if (analytics) {
+        setAnalyticsData(prev => ({ ...prev, instagram: analytics }))
       } else {
         setAnalyticsData(prev => ({ ...prev, instagram: null }))
       }
-      if (postsRes?.success) {
-        setPostsData(prev => ({ ...prev, instagram: postsRes.data }))
-      } else {
-        setPostsData(prev => ({ ...prev, instagram: [] }))
-      }
+      setPostsData(prev => ({ ...prev, instagram: reels }))
     } catch (err) {
       console.error('Failed to fetch Instagram data:', err)
       const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to fetch Instagram account data'
@@ -196,7 +184,6 @@ export function AccountProvider({ children }) {
     }
   }, [])
 
-  // Trigger data fetch when selected account changes
   useEffect(() => {
     const activeId = selectedAccountIds.instagram
     if (activeId) {
@@ -204,15 +191,25 @@ export function AccountProvider({ children }) {
     }
   }, [selectedAccountIds.instagram, fetchInstagramAnalytics])
 
-  // CRUD Connect Account
+  const handleSyncStatusChange = useCallback((username, status) => {
+    if (status.syncStatus === 'ready' || status.syncStatus === 'error') {
+      loadInstagramAccounts()
+    }
+  }, [loadInstagramAccounts])
+
+  const instagramAccountsForPoll = accounts.instagram
+    .filter(a => a.id !== 'demo_ig')
+    .map(a => ({ username: a.username, syncStatus: a.syncStatus }))
+
+  useInstagramSyncPoll(instagramAccountsForPoll, handleSyncStatusChange)
+
   const connectNewAccount = useCallback(async (platform, payload) => {
     if (platform !== 'instagram') {
-      // Mock other platforms
       const mockId = `${platform}_${Math.random().toString(36).substring(2, 8)}`
       const newAcc = {
         id: mockId,
         accountId: mockId,
-        username: `@${payload.username.replace('@', '')}`,
+        username: `@${(payload.username || '').replace('@', '')}`,
         displayName: payload.displayName || payload.username,
         profileImage: `https://ui-avatars.com/api/?name=${encodeURIComponent(payload.displayName || payload.username)}&background=000&color=fff`,
         followers: 12000,
@@ -229,30 +226,26 @@ export function AccountProvider({ children }) {
       return { success: true, data: newAcc }
     }
 
-    // Instagram: prefer the OAuth flow, which stores a real encrypted Meta
-    // access token. The username-only path creates a fake token that the
-    // analytics controller cannot use against Meta Graph API.
+    const username = normalizeUsername(payload?.username || '')
+    if (!username) {
+      const err = new Error('Username is required')
+      throw err
+    }
+
     setLoading(prev => ({ ...prev, instagram: true }))
     try {
-      const urlRes = await getInstagramAuthUrl()
-      const authUrl = urlRes?.data?.authUrl
-      if (!authUrl) {
-        throw new Error('Backend did not return an Instagram OAuth URL. Check that INSTAGRAM_CLIENT_ID, INSTAGRAM_CLIENT_SECRET, and INSTAGRAM_REDIRECT_URI are set on the backend.')
-      }
-      // Redirect the user to Meta's OAuth consent screen. After consent,
-      // Meta redirects back to /instagram/accounts?connected=true, which
-      // triggers a reload of accounts on that page.
-      window.location.href = authUrl
-      return { success: true, data: { redirecting: true } }
+      const res = await addInstagramAccount(username)
+      await loadInstagramAccounts()
+      setSelectedAccountIds(prev => ({ ...prev, instagram: username }))
+      return res || { success: true, data: { username } }
     } catch (err) {
-      console.error('Failed to start Instagram OAuth:', err)
+      console.error('Failed to add Instagram account:', err)
       throw err
     } finally {
       setLoading(prev => ({ ...prev, instagram: false }))
     }
   }, [loadInstagramAccounts])
 
-  // CRUD Disconnect Account
   const disconnectAccount = useCallback(async (platform, accountId) => {
     if (platform !== 'instagram') {
       setAccounts(prev => {
@@ -272,9 +265,7 @@ export function AccountProvider({ children }) {
     setLoading(prev => ({ ...prev, instagram: true }))
     try {
       const res = await deleteInstagramAccount(accountId)
-      if (res?.success) {
-        await loadInstagramAccounts()
-      }
+      await loadInstagramAccounts()
       return res
     } catch (err) {
       console.error('Failed to disconnect Instagram account:', err)
@@ -284,11 +275,10 @@ export function AccountProvider({ children }) {
     }
   }, [loadInstagramAccounts])
 
-  // Helper to get active account object
   const getActiveAccount = (platform) => {
     const list = accounts[platform] || []
     const activeId = selectedAccountIds[platform]
-    return list.find(a => a.accountId === activeId) || list[0] || (FALLBACK_ACCOUNTS[platform] ? FALLBACK_ACCOUNTS[platform][0] : null)
+    return list.find(a => (a.accountId === activeId) || (a.username === activeId)) || list[0] || (FALLBACK_ACCOUNTS[platform] ? FALLBACK_ACCOUNTS[platform][0] : null)
   }
 
   const activeAccount = getActiveAccount(selectedPlatform)

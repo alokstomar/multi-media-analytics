@@ -35,7 +35,6 @@ export const youtubeSidebar = [
 
 export const instagramSidebar = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  { name: "Instagram Accounts", icon: Users, path: "/instagram/accounts" },
   { name: "Analytics", icon: BarChart3, path: "/analytics" },
   { name: "Portfolio Intelligence", icon: Layers, path: "/portfolio-intelligence" },
   { name: "Content Intelligence", icon: Sparkles, path: "/content-intelligence" },

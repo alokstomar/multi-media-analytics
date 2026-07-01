@@ -371,29 +371,21 @@ export const disconnectAccount = (id) =>
   api.delete(`/api/studio/accounts/${id}`).then((r) => r.data)
 
 // ── Instagram ────────────────────────────────────────────────────────
+// Username-based onboarding — accounts are added by handle, no OAuth.
 export const getInstagramAccounts = () =>
   api.get('/api/instagram/accounts').then((r) => r.data)
 
-export const addInstagramAccount = (payload) =>
-  api.post('/api/instagram', payload).then((r) => r.data)
+export const addInstagramAccount = (username) =>
+  api.post(`/api/instagram/accounts/${username}`).then((r) => r.data)
 
-export const deleteInstagramAccount = (id) =>
-  api.delete(`/api/instagram/accounts/${id}`).then((r) => r.data)
+export const deleteInstagramAccount = (username) =>
+  api.delete(`/api/instagram/accounts/${username}`).then((r) => r.data)
 
-export const getInstagramAnalytics = (id) =>
-  api.get(`/api/instagram/${id}/analytics`).then((r) => r.data)
+export const refreshInstagramAccount = (username) =>
+  api.post(`/api/instagram/accounts/${username}/sync`, {}, { timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
-export const getInstagramPosts = (id, { type = 'All' } = {}) =>
-  api.get(`/api/instagram/${id}/posts`, { params: { type } }).then((r) => r.data)
-
-export const getInstagramAuthUrl = () =>
-  api.get('/api/instagram/auth/url').then((r) => r.data)
-
-export const refreshInstagramToken = (id) =>
-  api.post('/api/instagram/auth/refresh', { accountId: id }).then((r) => r.data)
-
-export const getInstagramOAuthHealth = () =>
-  api.get('/api/instagram/oauth/health').then((r) => r.data)
+export const getInstagramSyncStatus = (username) =>
+  api.get(`/api/instagram/accounts/${username}/status`).then((r) => r.data)
 
 // ── X AI Growth Engine ─────────────────────────────────────────────────
 export const aiGenerateTweet = (payload) =>

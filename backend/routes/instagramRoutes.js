@@ -1,23 +1,13 @@
 import { Router } from 'express'
 import {
-  listAccounts,
   addAccount,
-  getAccount,
-  removeAccount,
-  getAccountAnalytics,
-  getAccountPosts,
-} from '../controllers/instagramController.js'
-import {
-  getAuthUrl,
-  handleCallback,
-  refreshAccount,
-  getAccounts,
-  disconnectAccount,
-  getHealth,
-} from '../controllers/instagramOAuthController.js'
+  listAccounts,
+  deleteAccount,
+  syncAccount,
+  getAccountStatus,
+} from '../controllers/instagramAccountController.js'
 import { requireAuth, requireWorkspace } from '../middlewares/authMiddleware.js'
 
-// Import new integration framework services
 import { analyticsService } from '../services/instagram/analyticsService.js'
 import { reelsService } from '../services/instagram/reelsService.js'
 import { commentsService } from '../services/instagram/commentsService.js'
@@ -25,21 +15,16 @@ import { AppError } from '../utils/errorHandler.js'
 
 const router = Router()
 
-// Public callback
-router.get('/auth/callback', handleCallback)
-
-// Protected routes context
 router.use(requireAuth, requireWorkspace)
 
-// ── Instagram OAuth & Connected Accounts (Phase 4F) ───────────────────
-router.get('/auth/url', getAuthUrl)
-router.post('/auth/refresh', refreshAccount)
-router.get('/accounts', getAccounts)
-router.delete('/accounts/:id', disconnectAccount)
-router.get('/oauth/health', getHealth)
+// ── Account lifecycle (username-based) ───────────────────────────────
+router.post('/accounts/:username', addAccount)
+router.get('/accounts', listAccounts)
+router.delete('/accounts/:username', deleteAccount)
+router.post('/accounts/:username/sync', syncAccount)
+router.get('/accounts/:username/status', getAccountStatus)
 
-// ── New Instagram Integration Framework Routes ─────────────────────────
-// Sync Instagram profile, reels, and comments
+// ── Sync + read endpoints (existing) ────────────────────────────────
 router.post('/sync/:username', async (req, res, next) => {
   try {
     const { username } = req.params
@@ -50,7 +35,6 @@ router.post('/sync/:username', async (req, res, next) => {
   }
 })
 
-// Bulk sync Instagram profiles
 router.post('/sync-bulk', async (req, res, next) => {
   try {
     const { usernames } = req.body
@@ -64,7 +48,6 @@ router.post('/sync-bulk', async (req, res, next) => {
   }
 })
 
-// Get cached or synced profile
 router.get('/profile/:username', async (req, res, next) => {
   try {
     const { username } = req.params
@@ -76,7 +59,6 @@ router.get('/profile/:username', async (req, res, next) => {
   }
 })
 
-// Get cached or synced reels
 router.get('/reels/:username', async (req, res, next) => {
   try {
     const { username } = req.params
@@ -88,7 +70,6 @@ router.get('/reels/:username', async (req, res, next) => {
   }
 })
 
-// Get cached or synced comments for a reel
 router.get('/comments/:reelId', async (req, res, next) => {
   try {
     const { reelId } = req.params
@@ -100,7 +81,6 @@ router.get('/comments/:reelId', async (req, res, next) => {
   }
 })
 
-// Get analytics snapshot
 router.get('/analytics/:username', async (req, res, next) => {
   try {
     const { username } = req.params
@@ -112,7 +92,6 @@ router.get('/analytics/:username', async (req, res, next) => {
   }
 })
 
-// Manually trigger AI recommendations analysis
 router.post('/recommendations/:username', async (req, res, next) => {
   try {
     const { username } = req.params
@@ -122,13 +101,5 @@ router.post('/recommendations/:username', async (req, res, next) => {
     next(err)
   }
 })
-
-// ── Legacy Analytics & Mock Dashboard compatibility ──────────────────
-router.get('/', listAccounts)
-router.post('/', addAccount)
-router.get('/:id', getAccount)
-router.delete('/:id', removeAccount)
-router.get('/:id/analytics', getAccountAnalytics)
-router.get('/:id/posts', getAccountPosts)
 
 export default router

@@ -31,7 +31,6 @@ import ContentCalendar from './pages/ContentCalendar'
 import PublishingQueue from './pages/PublishingQueue'
 import AutomationRules from './pages/AutomationRules'
 import PublishedContent from './pages/PublishedContent'
-import InstagramAccounts from './pages/InstagramAccounts'
 import AITweetWriter from './pages/AITweetWriter'
 import TrendingTopics from './pages/TrendingTopics'
 import ViralOpportunities from './pages/ViralOpportunities'
@@ -126,7 +125,6 @@ function App() {
         <Route path="/trending-topics" element={<ErrorBoundary><TrendingTopics /></ErrorBoundary>} />
         <Route path="/viral-opportunities" element={<ErrorBoundary><ViralOpportunities /></ErrorBoundary>} />
         <Route path="/twitter-accounts" element={<ErrorBoundary><TwitterAccounts /></ErrorBoundary>} />
-        <Route path="/instagram/accounts" element={<ErrorBoundary><InstagramAccounts /></ErrorBoundary>} />
         <Route path="/integrations" element={<ErrorBoundary><Integrations /></ErrorBoundary>} />
 
         {/* LinkedIn Automation Suite */}

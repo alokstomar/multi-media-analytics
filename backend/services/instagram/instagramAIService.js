@@ -22,10 +22,9 @@
  *     provider on every request.
  */
 
-import mongoose from 'mongoose'
 import crypto from 'crypto'
 
-import InstagramAccount from '../../models/InstagramAccount.js'
+import InstagramProfile from '../../models/InstagramProfile.js'
 import InstagramAnalyticsSnapshot from '../../models/InstagramAnalyticsSnapshot.js'
 import InstagramReel from '../../models/InstagramReel.js'
 import InstagramComment from '../../models/InstagramComment.js'
@@ -65,18 +64,18 @@ const SLOW_CALL_THRESHOLD_MS = 30000
 // =====================================================
 
 /**
- * Resolve a workspace-scoped Instagram account. Accepts either an ObjectId
- * or a raw accountId string. Throws 404 if missing or outside the workspace.
+ * Resolve a workspace-scoped Instagram profile by username. The value passed
+ * in is the profile's username (the frontend treats username as the account
+ * id after the OAuth migration). Active records only — soft-deleted profiles
+ * are treated as not found.
  */
-export async function resolveAccount(accountId, workspaceId) {
-  if (!accountId) throw new AppError('accountId is required', 400)
-  const query = { workspaceId }
-  if (mongoose.Types.ObjectId.isValid(accountId)) {
-    query.$or = [{ _id: accountId }, { accountId }]
-  } else {
-    query.accountId = accountId
-  }
-  const acc = await InstagramAccount.findOne(query).lean()
+export async function resolveAccount(username, workspaceId) {
+  if (!username) throw new AppError('accountId is required', 400)
+  const acc = await InstagramProfile.findOne({
+    username,
+    workspaceId,
+    deletedAt: null,
+  }).lean()
   if (!acc) {
     throw new AppError('Instagram account not found in this workspace', 404)
   }
@@ -276,10 +275,13 @@ export async function getCompetitorsEndpoint({ workspaceId, accountId }) {
     input: '',
     computeFn: async () => {
       const ctx = await loadAccountContext(accountId, workspaceId)
-      const allAccounts = await InstagramAccount.find({ workspaceId })
-        .select('accountId username followers postsCount category bio')
+      const allAccounts = await InstagramProfile.find({
+        workspaceId,
+        deletedAt: null,
+      })
+        .select('username followers postsCount bio')
         .lean()
-      const competitors = allAccounts.filter((a) => a.accountId !== ctx.account.accountId)
+      const competitors = allAccounts.filter((a) => a.username !== ctx.account.username)
       return getCompetitorInsights(ctx, competitors)
     },
   })
@@ -325,11 +327,11 @@ function buildStrategistContext(ctx) {
   const { account, recentReels } = ctx
   const totalViews = recentReels.reduce((s, r) => s + (r.views || 0), 0)
   return {
-    channelId: account.accountId,
+    channelId: account.username,
     channel: {
       title: account.username,
       handle: `@${account.username}`,
-      description: account.bio || account.category || '',
+      description: account.bio || '',
       subscribers: account.followers || 0,
       totalVideos: account.postsCount || 0,
       totalViews,
@@ -366,7 +368,7 @@ async function computeRecommendations(ctx) {
   try {
     const provider = getAIProvider()
     const raw = await provider.getStrategistTips(buildStrategistContext(ctx), {
-      channelId: account.accountId,
+      channelId: account.username,
       feature: 'ig-recommendations',
     })
 

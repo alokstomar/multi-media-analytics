@@ -13,7 +13,7 @@
  */
 
 import mongoose from 'mongoose'
-import InstagramAccount from '../../models/InstagramAccount.js'
+import InstagramProfile from '../../models/InstagramProfile.js'
 import InstagramAnalyticsSnapshot from '../../models/InstagramAnalyticsSnapshot.js'
 import InstagramReel from '../../models/InstagramReel.js'
 import InstagramComment from '../../models/InstagramComment.js'
@@ -29,18 +29,17 @@ const RECENT_REELS_LIMIT = 25
 const RECENT_COMMENTS_WINDOW_DAYS = 7
 
 /**
- * Resolve a workspace-scoped Instagram account by id (objectId OR accountId).
- * Throws 404 if not found or outside the workspace.
+ * Resolve a workspace-scoped Instagram profile by username. The value passed
+ * in is the profile's username (the frontend treats username as the account
+ * id after the OAuth migration). Active records only.
  */
-async function resolveAccount(accountId, workspaceId) {
-  if (!accountId) throw new AppError('accountId is required', 400)
-  const query = { workspaceId }
-  if (mongoose.Types.ObjectId.isValid(accountId)) {
-    query.$or = [{ _id: accountId }, { accountId }]
-  } else {
-    query.accountId = accountId
-  }
-  const acc = await InstagramAccount.findOne(query).lean()
+async function resolveAccount(username, workspaceId) {
+  if (!username) throw new AppError('accountId is required', 400)
+  const acc = await InstagramProfile.findOne({
+    username,
+    workspaceId,
+    deletedAt: null,
+  }).lean()
   if (!acc) throw new AppError('Instagram account not found in this workspace', 404)
   return acc
 }
@@ -101,13 +100,14 @@ export async function refreshAlertsForAccount(accountId, workspaceId, userId = n
   })
 
   // Dedupe: skip signatures that already exist in the dedupe window.
+  // accountId column stores the username value post-OAuth migration.
   const signatures = candidates.map((c) => c.metadata?.signature).filter(Boolean)
   const cutoff = new Date(Date.now() - DEDUPE_WINDOW_DAYS * 86400000)
   let existing = []
   if (signatures.length) {
     existing = await InstagramAlert.find({
       workspaceId,
-      accountId: acc.accountId,
+      accountId: acc.username,
       'metadata.signature': { $in: signatures },
       createdAt: { $gte: cutoff },
     })
@@ -120,7 +120,7 @@ export async function refreshAlertsForAccount(accountId, workspaceId, userId = n
     .filter((c) => c.metadata?.signature && !existingSigs.has(c.metadata.signature))
     .map((c) => ({
       workspaceId,
-      accountId: acc.accountId,
+      accountId: acc.username,
       userId: userId || null,
       type: c.type,
       severity: c.severity,
@@ -142,8 +142,11 @@ export async function refreshAlertsForAccount(accountId, workspaceId, userId = n
  * Returns aggregate counts.
  */
 export async function refreshAllAlerts(workspaceId, userId = null) {
-  const accounts = await InstagramAccount.find({ workspaceId })
-    .select('accountId username')
+  const accounts = await InstagramProfile.find({
+    workspaceId,
+    deletedAt: null,
+  })
+    .select('username')
     .lean()
   if (!accounts.length) return { accounts: 0, created: 0, skipped: 0, total: 0 }
 
@@ -152,14 +155,14 @@ export async function refreshAllAlerts(workspaceId, userId = null) {
   let total = 0
   for (const acc of accounts) {
     try {
-      const r = await refreshAlertsForAccount(acc.accountId, workspaceId, userId)
+      const r = await refreshAlertsForAccount(acc.username, workspaceId, userId)
       created += r.created
       skipped += r.skipped
       total += r.total
     } catch (err) {
       // Per-account failures shouldn't abort the whole refresh — log and move on.
       console.warn(
-        `[instagramAlertsService] refresh failed for ${acc.username || acc.accountId}:`,
+        `[instagramAlertsService] refresh failed for ${acc.username}:`,
         err.message
       )
     }

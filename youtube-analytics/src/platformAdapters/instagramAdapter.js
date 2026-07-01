@@ -131,9 +131,9 @@ export function useInstagramAdapter() {
       const color = CHANNEL_COLORS[index % CHANNEL_COLORS.length]
       const gradient = CHANNEL_GRADIENTS[index % CHANNEL_GRADIENTS.length]
       return {
-        id: acc.accountId,
-        name: acc.displayName,
-        handle: acc.username,
+        id: acc.username,
+        name: acc.displayName || acc.username,
+        handle: `@${acc.username}`,
         avatar: acc.profileImage,
         color,
         gradient,
@@ -144,6 +144,9 @@ export function useInstagramAdapter() {
         verified: acc.isVerified,
         contentLabel: 'Post',
         category: acc.category || 'Creator',
+        syncStatus: acc.syncStatus || 'ready',
+        syncError: acc.syncError || '',
+        syncedAt: acc.syncedAt || null,
         _raw: {
           subscribers: acc.followers || 0,
           totalViews: (acc.followers || 0) * 4,
@@ -279,8 +282,8 @@ export function useInstagramAdapter() {
 
     // CRUD
     addAccount: (input) => {
-      // OAuth flow ignores input; username-based connection is no longer supported.
-      return account.connectAccount('instagram', { username: '', displayName: '' })
+      const username = typeof input === 'string' ? input : input?.username
+      return account.connectAccount('instagram', { username })
     },
     removeAccount: (id) => account.disconnectAccount('instagram', id),
     updateAccount: () => account.refreshAccounts(),

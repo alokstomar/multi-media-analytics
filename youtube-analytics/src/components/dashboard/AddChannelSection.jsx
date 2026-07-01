@@ -19,28 +19,12 @@ export default function AddChannelSection() {
   const [error, setError] = useState('')
 
   async function handleAnalyze() {
-    // Instagram connects via Meta OAuth — there's no username input to type.
-    // addAccount() (from the adapter) will redirect the browser to Meta's
-    // consent screen.
-    if (selectedPlatform === 'instagram') {
-      setLoading(true)
-      setError('')
-      try {
-        await addAccount()
-      } catch (err) {
-        setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to start Instagram OAuth')
-      } finally {
-        setLoading(false)
-      }
-      return
-    }
-
     const trimmed = input.trim()
     if (!trimmed) return
     setLoading(true)
     setError('')
     try {
-      const res = await addAccount(trimmed)
+      await addAccount(trimmed)
       setInput('')
     } catch (err) {
       setError(err.response?.data?.message || err.response?.data?.error || `Failed to add ${selectedPlatform}`)
@@ -50,7 +34,7 @@ export default function AddChannelSection() {
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Enter' && selectedPlatform !== 'instagram') handleAnalyze()
+    if (e.key === 'Enter') handleAnalyze()
   }
 
   // Capitalize helper
@@ -68,9 +52,9 @@ export default function AddChannelSection() {
       accentColor: 'text-red-600',
     },
     instagram: {
-      title: 'Connect Instagram Account',
-      desc: 'Connect an Instagram Business or Creator account via Meta. Requires a linked Facebook Page.',
-      placeholder: 'Connects via Meta OAuth — no username needed',
+      title: 'Add Instagram Channel',
+      desc: 'Enter an Instagram username to start tracking analytics.',
+      placeholder: 'Enter Instagram username (e.g. nike)',
       metricLabel: 'followers',
       btnBg: 'bg-purple-600 hover:bg-purple-700',
       activeBorder: 'border-purple-400 bg-purple-50/30',
@@ -113,28 +97,21 @@ export default function AddChannelSection() {
           {currentConfig.desc}
         </p>
         <div className="flex items-center gap-3 mt-2">
-          {selectedPlatform !== 'instagram' && (
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={currentConfig.placeholder}
-              className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={isFetching}
-            />
-          )}
-          {selectedPlatform === 'instagram' && (
-            <p className="flex-1 text-xs text-gray-400 italic px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl">
-              {currentConfig.placeholder}
-            </p>
-          )}
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={currentConfig.placeholder}
+            className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={isFetching}
+          />
           <button
             onClick={handleAnalyze}
             disabled={isFetching}
             className={`${currentConfig.btnBg} text-white px-5 py-3 rounded-xl text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300`}
           >
-            {isFetching ? 'Syncing...' : 'Connect'}
+            {isFetching ? 'Adding...' : 'Add Channel'}
           </button>
         </div>
         {error && (
@@ -191,10 +168,6 @@ export default function AddChannelSection() {
         {filteredAccounts.length === 0 && (
           <div
             onClick={() => {
-              if (selectedPlatform === 'instagram') {
-                handleAnalyze()
-                return
-              }
               const handle = prompt(`Enter ${capitalize(selectedPlatform)} username/handle to connect:`)
               if (handle) {
                 setInput(handle)

@@ -7,6 +7,7 @@ import {
   TrendingUp,
   TrendingDown,
   AlertCircle,
+  Loader2,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
 
@@ -113,11 +114,26 @@ function AccountCard({ account, isActive, onSelect, onDisconnect }) {
         </div>
       </div>
 
-      {/* Category badge */}
-      <div className="mt-3">
+      {/* Category badge + sync state */}
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 uppercase tracking-wider">
           {account.category || 'Creator'}
         </span>
+        {account.syncStatus === 'syncing' && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            Syncing
+          </span>
+        )}
+        {account.syncStatus === 'error' && (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200"
+            title={account.syncError || 'Sync failed'}
+          >
+            <AlertCircle className="h-2.5 w-2.5" />
+            Sync error
+          </span>
+        )}
       </div>
 
       {/* Disconnect (hover only) */}
@@ -151,7 +167,7 @@ function EmptyState({ onConnect, connecting, error }) {
         <div>
           <p className="text-sm font-bold text-purple-900">No Instagram accounts connected</p>
           <p className="text-xs text-purple-700/80 mt-0.5">
-            Connect a Meta-authorized Instagram Business or Creator account to start tracking analytics.
+            Add an Instagram account by username to start tracking analytics.
           </p>
           {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
         </div>
@@ -162,7 +178,7 @@ function EmptyState({ onConnect, connecting, error }) {
         className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm shrink-0"
       >
         <Plus className="h-3.5 w-3.5" />
-        {connecting ? 'Redirecting to Meta…' : 'Connect Account'}
+        {connecting ? 'Adding…' : 'Add Account'}
       </button>
     </motion.div>
   )
@@ -194,19 +210,18 @@ export default function AccountCarousel() {
   const activeId = selectedAccount?.id
 
   const handleConnect = async () => {
+    const username = window.prompt('Enter Instagram username to add (e.g. nike):')
+    if (!username || !username.trim()) return
     setConnecting(true)
     setError('')
     try {
-      // addAccount() (from adapter) triggers Meta OAuth redirect — the browser
-      // navigates away on success and we never reach finally. On failure we
-      // surface the error.
-      await addAccount()
+      await addAccount(username.trim())
     } catch (err) {
       setError(
         err.response?.data?.message ||
           err.response?.data?.error ||
           err.message ||
-          'Failed to start Instagram OAuth'
+          'Failed to add Instagram account'
       )
     } finally {
       setConnecting(false)
@@ -251,7 +266,7 @@ export default function AccountCarousel() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
-            {connecting ? 'Redirecting…' : 'Connect'}
+            {connecting ? 'Adding…' : 'Add'}
           </button>
         )}
       </div>
@@ -281,13 +296,13 @@ export default function AccountCarousel() {
             onClick={handleConnect}
             disabled={connecting}
             className="group shrink-0 w-[160px] min-h-[160px] rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 snap-start"
-            title="Connect another Instagram account"
+            title="Add another Instagram account"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 group-hover:bg-purple-100 transition-colors">
               <Plus className="h-4 w-4" />
             </div>
             <span className="text-xs font-semibold">
-              {connecting ? 'Redirecting…' : 'Add New'}
+              {connecting ? 'Adding…' : 'Add New'}
             </span>
           </motion.button>
         </div>
