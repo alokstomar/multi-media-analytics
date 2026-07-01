@@ -567,6 +567,54 @@ export const markAllInstagramAlertsRead = ({ accountId } = {}) =>
     .post('/api/instagram/alerts/read-all', { accountId })
     .then((r) => r.data?.data || { modifiedCount: 0 })
 
+// ── Instagram AI Intelligence (Phase 9) ───────────────────────────────
+// All routes sit under /api/instagram/intelligence and use the long AI
+// timeout — cold provider calls can legitimately take 15-25s.
+export const getInstagramRecommendations = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/recommendations', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { recommendations: [], meta: {} })
+
+export const getInstagramBestTimes = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/best-times', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { bestSlots: [], distributionByHour: [], distributionByDay: [] })
+
+export const getInstagramGrowthOpportunities = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/growth-opportunities', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { opportunities: [], unansweredQuestions: [] })
+
+export const getInstagramCompetitors = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/competitors', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { opportunities: [], competitors: [] })
+
+export const getInstagramHashtags = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/hashtags', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { hashtags: [], sourceBreakdown: {} })
+
+export const generateInstagramContentIdeas = (payload) =>
+  api
+    .post('/api/instagram/intelligence/content-ideas', payload, { timeout: AI_TIMEOUT })
+    .then((r) => r.data?.data || { ideas: [] })
+
 export const getAIUsageStats = () =>
   api.get('/api/settings/ai-usage').then((r) => r.data)
 

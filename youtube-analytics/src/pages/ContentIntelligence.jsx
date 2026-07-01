@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { usePlatform } from '../hooks/usePlatform'
 import { usePlatformAdapter } from '../platformAdapters'
 import ChannelSelector from '../components/analytics/ChannelSelector'
+import InstagramAIIntelligence from '../components/instagram/InstagramAIIntelligence'
 
 // Import modular Content Intelligence components
 import MetricsOverview from '../components/content-intelligence/MetricsOverview'
@@ -18,6 +19,11 @@ import ErrorBoundary from '../components/ErrorBoundary'
 
 export default function ContentIntelligence() {
   const { selectedPlatform } = usePlatform()
+
+  if (selectedPlatform === 'instagram') {
+    return <InstagramAIIntelligence />
+  }
+
   const {
     activeAccountId: activeChannelId,
     loading: isTransitioning,
