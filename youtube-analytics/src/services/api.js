@@ -274,6 +274,24 @@ export const generateShortsIdeas = (channelId, payload = {}) =>
   dedupeAI(`shorts-ideas:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/shorts-ideas`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))
 
+// Production script: ideaId is in the URL path (REST-style — the
+// recommendation is the resource). Body only carries the optional
+// recommendation fallback for direct-URL access without a prior ideas fetch.
+// ?regenerate=1 bypasses cache read on the server so the user gets a freshly
+// generated script. The dedupe key differs in regen mode to prevent a cached
+// in-flight promise from masking a new regeneration call.
+export const generateProductionScript = (channelId, ideaId, { regenerate = false, recommendation = null } = {}) =>
+  dedupeAI(
+    `production-script:${channelId}:${ideaId}${regenerate ? ':regen' : ''}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/production-script/${ideaId}${regenerate ? '?regenerate=1' : ''}`,
+        { recommendation },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
 export const getContentGaps = (channelId, payload = {}) =>
   dedupeAI(`content-gaps:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/content-gaps`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))

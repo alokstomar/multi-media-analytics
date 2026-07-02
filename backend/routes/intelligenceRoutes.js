@@ -7,6 +7,7 @@ import {
   analyzeScript,
   generateVideoIdeas,
   generateShortsIdeas,
+  generateProductionScript,
   getContentGaps,
   getStrategistTips,
   predictPerformance,
@@ -37,6 +38,10 @@ router.get('/competitor-opportunities', getCompetitorOpportunities)
 // Channel-scoped intelligence
 router.post('/:channelId/ideas', generateVideoIdeas)
 router.post('/:channelId/shorts-ideas', generateShortsIdeas)
+// ideaId in the URL path so the recommendation is a true resource identifier
+// and req.params.ideaId is populated (matches the /script/:channelId/:ideaId
+// route on the frontend).
+router.post('/:channelId/production-script/:ideaId', generateProductionScript)
 router.post('/:channelId/content-gaps', getContentGaps)
 router.post('/:channelId/strategist', getStrategistTips)
 router.post('/:channelId/predict-performance', predictPerformance)

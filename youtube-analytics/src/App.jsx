@@ -18,6 +18,7 @@ import Analytics from './pages/Analytics'
 import PortfolioIntelligence from './pages/PortfolioIntelligence'
 import ContentIntelligence from './pages/ContentIntelligence'
 import ContentStudio from './pages/ContentStudio'
+import ProductionScript from './pages/ProductionScript'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Videos from './pages/Videos'
 import Comments from './pages/Comments'
@@ -111,6 +112,7 @@ function App() {
         <Route path="/portfolio-intelligence" element={<ErrorBoundary><PortfolioIntelligence /></ErrorBoundary>} />
         <Route path="/content-intelligence" element={<ErrorBoundary><ContentIntelligence /></ErrorBoundary>} />
         <Route path="/content-studio" element={<ErrorBoundary><ContentStudio /></ErrorBoundary>} />
+        <Route path="/script/:channelId/:ideaId" element={<ErrorBoundary><ProductionScript /></ErrorBoundary>} />
         
         {/* Twitter Automation Core Pages */}
         <Route path="/new-tweet" element={<ErrorBoundary><NewTweet /></ErrorBoundary>} />

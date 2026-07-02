@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronUp, Sparkles, AlertCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Sparkles, AlertCircle, ArrowRight } from 'lucide-react'
 import { usePlatformAdapter } from '../../platformAdapters'
 import { usePlatform } from '../../context/PlatformContext'
 import { generateVideoIdeas as apiGenerateVideoIdeas } from '../../services/api'
@@ -89,56 +90,65 @@ export default function VideoIdeasSection() {
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3, delay: idx * 0.04 }}
-                      className="rounded-2xl border border-gray-100 bg-white p-5 hover:border-violet-200/60 transition-all duration-300 grid grid-cols-1 md:grid-cols-12 gap-5 items-center"
                     >
-                      <div className="md:col-span-6 space-y-2.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase">CONCEPT #{idea.id || idx + 1}</span>
-                          {idea.tag && idea.badgeColor && (
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${idea.badgeColor}`}>
-                              {idea.tag}
+                      <Link
+                        to={activeChannelId && idea.id ? `/script/${activeChannelId}/${idea.id}` : '#'}
+                        state={{ idea, channel: { title: selectedPlatform === 'instagram' ? 'Instagram' : 'YouTube' } }}
+                        className="block rounded-2xl border border-gray-100 bg-white p-5 hover:border-violet-300 hover:shadow-[0_4px_20px_-4px_rgba(124,58,237,0.18)] transition-all duration-300 grid grid-cols-1 md:grid-cols-12 gap-5 items-center group focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+                      >
+                        <div className="md:col-span-6 space-y-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">CONCEPT #{idea.id || idx + 1}</span>
+                            {idea.tag && idea.badgeColor && (
+                              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${idea.badgeColor}`}>
+                                {idea.tag}
+                              </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700 border border-violet-100 opacity-0 group-hover:opacity-100 transition-opacity">
+                              Open script
+                              <ArrowRight className="h-2.5 w-2.5" />
                             </span>
+                          </div>
+                          <h3 className="text-[15px] font-bold text-gray-900 leading-snug tracking-tight group-hover:text-violet-700 transition-colors">
+                            {idea.title}
+                          </h3>
+                          {idea.whyRecommend && (
+                            <p className="text-[11px] text-gray-600 leading-relaxed flex items-start gap-2 bg-violet-50 p-3 rounded-xl border border-violet-100/30">
+                              <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-violet-500 shrink-0" />
+                              <span className="font-medium">{idea.whyRecommend}</span>
+                            </p>
                           )}
                         </div>
-                        <h3 className="text-[15px] font-bold text-gray-900 leading-snug tracking-tight">
-                          {idea.title}
-                        </h3>
-                        {idea.whyRecommend && (
-                          <p className="text-[11px] text-gray-600 leading-relaxed flex items-start gap-2 bg-violet-50 p-3 rounded-xl border border-violet-100/30">
-                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-violet-500 shrink-0" />
-                            <span className="font-medium">{idea.whyRecommend}</span>
-                          </p>
-                        )}
-                      </div>
 
-                      <div className="md:col-span-3 grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{selectedPlatform === 'instagram' ? 'Est. Reach' : 'Est. Views'}</p>
-                          <p className="text-[16px] font-bold text-gray-800 mt-0.5">{idea.predictedViews || '—'}</p>
-                        </div>
-                        <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
-                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Est. Likes</p>
-                          <p className="text-[16px] font-bold text-gray-800 mt-0.5">{idea.predictedEngagement?.split(' ')[0] || '—'}</p>
-                        </div>
-                      </div>
-
-                      <div className="md:col-span-3 space-y-3">
-                        {[
-                          { label: 'Opportunity Score', value: idea.opportunity, color: 'violet', bar: 'bg-violet-600' },
-                          { label: 'Production Difficulty', value: idea.difficulty, color: 'amber', bar: 'bg-amber-500' },
-                          { label: 'Trend Index', value: idea.trendScore, color: 'emerald', bar: 'bg-emerald-500' },
-                        ].map((m) => (
-                          <div key={m.label}>
-                            <div className="flex justify-between text-[11px] font-bold mb-1">
-                              <span className="text-gray-500">{m.label}</span>
-                              <span className={`text-${m.color}-600 font-bold`}>{m.value || 0}%</span>
-                            </div>
-                            <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                              <div className={`${m.bar} h-full rounded-full`} style={{ width: `${m.value || 0}%` }} />
-                            </div>
+                        <div className="md:col-span-3 grid grid-cols-2 gap-3">
+                          <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{selectedPlatform === 'instagram' ? 'Est. Reach' : 'Est. Views'}</p>
+                            <p className="text-[16px] font-bold text-gray-800 mt-0.5">{idea.predictedViews || '—'}</p>
                           </div>
-                        ))}
-                      </div>
+                          <div className="bg-white rounded-xl p-3 border border-gray-100 text-center">
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Est. Likes</p>
+                            <p className="text-[16px] font-bold text-gray-800 mt-0.5">{idea.predictedEngagement?.split(' ')[0] || '—'}</p>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-3 space-y-3">
+                          {[
+                            { label: 'Opportunity Score', value: idea.opportunity, color: 'violet', bar: 'bg-violet-600' },
+                            { label: 'Production Difficulty', value: idea.difficulty, color: 'amber', bar: 'bg-amber-500' },
+                            { label: 'Trend Index', value: idea.trendScore, color: 'emerald', bar: 'bg-emerald-500' },
+                          ].map((m) => (
+                            <div key={m.label}>
+                              <div className="flex justify-between text-[11px] font-bold mb-1">
+                                <span className="text-gray-500">{m.label}</span>
+                                <span className={`text-${m.color}-600 font-bold`}>{m.value || 0}%</span>
+                              </div>
+                              <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                                <div className={`${m.bar} h-full rounded-full`} style={{ width: `${m.value || 0}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </Link>
                     </motion.div>
                   ))}
                 </div>

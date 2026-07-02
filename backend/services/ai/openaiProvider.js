@@ -39,6 +39,9 @@ const CACHE_TTL = {
   getContentGaps: 12,
   summarizeAlerts: 6,
   generateCompetitorOpportunities: 24,
+  // Production scripts are expensive to regenerate and stable once written —
+  // cache for a week so revisit/regenerate-from-scratch is fast but still possible.
+  generateProductionScript: 168,
   // Portfolio Intelligence — expensive multi-channel computations, cache aggressively
   getPortfolioStrategist: 24,
   getAudienceOverlap: 24,
@@ -62,6 +65,8 @@ const PREMIUM_METHODS = new Set([
   'getCannibalization',
   'getCrossPromotion',
   'getPortfolioSummary',
+  // Production script generation — long-form structured reasoning
+  'generateProductionScript',
 ])
 
 function makeCacheKey(method, params) {
@@ -208,6 +213,21 @@ const VALIDATORS = {
       && typeof i.retention === 'string'
       && typeof i.viralScore === 'number'
       && typeof i.trendStrength === 'number'
+    )
+  },
+  // Permissive validator: the schema is intentionally flexible so the AI can
+  // decide which optional fields each timeline section needs. We only enforce
+  // the minimum shape required for the frontend to render anything meaningful.
+  generateProductionScript(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (typeof obj.overview !== 'string' || obj.overview.trim().length === 0) return false
+    if (!Array.isArray(obj.timeline) || obj.timeline.length === 0) return false
+    return obj.timeline.every((block) =>
+      block
+      && typeof block === 'object'
+      && typeof block.sectionName === 'string'
+      && (typeof block.narration === 'string' || Array.isArray(block.narration))
+      && (block.timestamp === undefined || typeof block.timestamp === 'string')
     )
   },
   getStrategistTips(obj) {
@@ -471,6 +491,27 @@ export class OpenAIProvider extends AIProviderInterface {
     const validator = VALIDATORS[method]
 
     if (!parsed || (validator && !validator(parsed))) {
+      // Print enough context to debug without re-running: the model used,
+      // the received top-level shape, and a head/tail of the raw payload.
+      // Full raw is intentionally truncated to keep logs readable.
+      const receivedShape = parsed == null
+        ? 'null / not JSON'
+        : Array.isArray(parsed)
+          ? `array[length=${parsed.length}]`
+          : `object{keys=[${Object.keys(parsed).slice(0, 12).join(',')}]}`
+
+      console.error(`[AI Validation FAIL] ${method}`, {
+        provider: this.providerKey,
+        model,
+        responseTimeMs,
+        promptTokens,
+        completionTokens,
+        requestId: completion?.id || null,
+        parseFailed: parsed == null,
+        receivedShape,
+        rawHead: rawContent.slice(0, 600),
+        rawTail: rawContent.slice(-200),
+      })
       // Log the failed parse attempt
       AIUsageLog.create({
         method, model, promptTokens, completionTokens, totalTokens,
@@ -1128,6 +1169,154 @@ Generate 3 viral Shorts concepts for this channel.`
       userPrompt,
       { temperature: 0.8 }
     )
+  }
+
+  // ── Production-grade long-form script generation ─────────────────────
+  // Builds a complete, shoot-ready YouTube script for one specific
+  // recommended concept. Reuses _execute() so cache, budget, validator,
+  // and usage log all apply automatically. Schema is intentionally
+  // permissive — the AI decides how many sections, the total duration,
+  // and which optional fields each section needs.
+  async generateProductionScript(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+    const recommendation = ctx.recommendation || {}
+
+    const topVideos = videos.slice(0, 10).map((v) => ({
+      title: v.title,
+      views: v.views,
+      likes: v.likes,
+      comments: v.comments,
+      publishedAt: v.publishedAt,
+    }))
+
+    const systemPrompt = `You are a senior YouTube scriptwriter and retention strategist with a track record of million-view long-form videos. You are handed a single recommended concept and the channel it belongs to, and you produce a complete, production-ready script.
+
+Return ONLY valid JSON (no markdown fences, no commentary outside the JSON).
+
+The shape is:
+{
+  "overview": "<2-3 sentence synopsis of the finished video>",
+  "estimatedDuration": "<human-readable total duration, e.g. '14-18 min'>",
+  "targetAudience": "<1-line description of who this is for>",
+  "heroTitle": "<final CTR-optimized title under 70 chars>",
+  "titles": [<3-5 alternative title ideas, each a string>],
+  "thumbnailIdeas": [
+    { "concept": "<visual description>", "textOverlay": "<short on-thumbnail text>", "emotion": "<the feeling it should evoke>" }
+  ],
+  "timeline": [
+    {
+      "timestamp": "<mm:ss or hh:mm:ss — you decide based on total duration>",
+      "sectionName": "<e.g. Cold Open / Hook, Setup, Body 1, Payoff, CTA>",
+      "narration": "<full voiceover/host text for this section, written to be read aloud>",
+      "visualDirection": "<what we see on screen in this section>",
+      "broll": [<array of B-roll suggestions>],
+      "cameraDirection": "<shot framing / movement>",
+      "motionGraphics": [<array of motion-graphic notes>],
+      "onScreenText": [<array of on-screen text cues>],
+      "soundEffects": [<array of SFX cues>],
+      "backgroundMusic": "<music mood/track reference>",
+      "editingNotes": "<cut/pacing/transition notes>",
+      "retentionTrigger": "<which retention lever this section deploys — curiosity gap, pattern interrupt, open loop, stakes, etc.>"
+    }
+  ],
+  "chapters": [{ "timestamp": "<mm:ss>", "title": "<chapter title>" }],
+  "seo": {
+    "keywords": [<array of SEO keywords>],
+    "tags": [<array of YouTube tags>],
+    "description": "<full YouTube description with timestamps>"
+  },
+  "cta": "<end-of-video call to action>",
+  "productionNotes": [<array of practical production notes>]
+}
+
+Rules:
+- The ONLY required keys on each timeline block are sectionName and narration. Every other field is OPTIONAL — include it only when it adds real value for that section. A block might have only 3 fields; another might have 10. That is correct and expected.
+- Decide the total duration and the number of timeline sections (typically 5-9) based on what the script actually needs.
+- Decide the timestamp format: mm:ss for videos under an hour, hh:mm:ss otherwise.
+- Hook in the first 5 seconds. Build at least one open curiosity loop in the first third and resolve it near the end.
+- Narration must be written as actual spoken sentences, not bullet points.
+- All content must be specific to the channel and concept in the user prompt. No placeholders, no generic filler.
+- Do not echo the input back. Produce the finished script.`
+
+    const userPrompt = `CHANNEL
+  Title: ${channel.title || '(unknown)'}
+  Handle: ${channel.handle || '(none)'}
+  Subscribers: ${channel.subscribers || 0}
+  Total videos: ${channel.totalVideos || 0}
+  Total views: ${channel.totalViews || 0}
+  Description: ${(channel.description || '(none provided)').substring(0, 600)}
+
+RECENT VIDEOS (top ${topVideos.length} by recency)
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes, ${v.comments || 0} comments`).join('\n')
+      : '  (no video data available)'}
+
+RECOMMENDED CONCEPT — write the full script for this one
+  id: ${recommendation.id ?? '(none)'}
+  title: ${recommendation.title || '(none)'}
+  whyRecommended: ${recommendation.whyRecommend || '(none provided)'}
+  predictedViews: ${recommendation.predictedViews || 'n/a'}
+  predictedEngagement: ${recommendation.predictedEngagement || 'n/a'}
+  opportunityScore: ${recommendation.opportunity ?? 'n/a'} / 100
+  trendScore: ${recommendation.trendScore ?? 'n/a'} / 100
+  productionDifficulty: ${recommendation.difficulty ?? 'n/a'} / 100
+  tag: ${recommendation.tag || '(none)'}
+
+Write the complete production script now.`
+
+    // When the controller asks for regeneration, include a per-call nonce in
+    // the cache params. _execute's AIResponseCache hashes params to compute
+    // its key — without the nonce, regen would silently return the previous
+    // cached response instead of calling OpenAI again.
+    const cacheParams = {
+      channelId,
+      ideaId: recommendation.id,
+      // Include title in the cache params so each recommendation gets its own
+      // cache slot — without it, all ideas for a channel would collide.
+      ideaTitle: recommendation.title,
+    }
+    if (ctx.regenerate) {
+      cacheParams.regenAt = ctx.regenAt || Date.now()
+    }
+
+    const promptApproxTokens = Math.round((systemPrompt.length + userPrompt.length) / 4)
+    console.log('[ProductionScript] OpenAI request about to fire', {
+      channelId,
+      ideaId: recommendation.id,
+      model: this._getModel('generateProductionScript'),
+      temperature: 0.85,
+      promptChars: systemPrompt.length + userPrompt.length,
+      promptApproxTokens,
+    })
+
+    try {
+      const result = await this._execute(
+        'generateProductionScript',
+        cacheParams,
+        systemPrompt,
+        userPrompt,
+        { temperature: 0.85 }
+      )
+      console.log('[ProductionScript] OpenAI response validated', {
+        channelId,
+        ideaId: recommendation.id,
+        timelineSections: Array.isArray(result?.timeline) ? result.timeline.length : 0,
+        hasOverview: Boolean(result?.overview),
+      })
+      return result
+    } catch (err) {
+      // _execute already logged structured detail, but add a final clearly
+      // labeled marker so the failure is impossible to miss in dev logs.
+      console.error('[ProductionScript] OpenAI call FAILED', {
+        channelId,
+        ideaId: recommendation.id,
+        errorName: err?.name,
+        errorMessage: err?.message,
+      })
+      throw err
+    }
   }
 
   async getStrategistTips(ctx = {}, _opts = {}) {

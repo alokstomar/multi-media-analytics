@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import dns from 'node:dns'
 
 // Disable Mongoose's internal command buffering globally. Without this, any
 // query issued while the connection is down is held in a 10s internal buffer
@@ -44,6 +45,63 @@ function maskUri(uri) {
   } catch {
     return '<unparseable uri>'
   }
+}
+
+// Classify a MongoDB connection error so logs can call out the failure mode
+// (DNS / auth / network / server-selection) instead of leaving the dev to
+// decode a raw `querySrv ECONNREFUSED` string.
+function classifyDbError(err) {
+  const msg = (err?.message || '').toLowerCase()
+  if (err?.code === 'ENOTFOUND' || /querysrv|querya|queryaaaa|edns|dns/.test(msg)) {
+    return 'dns'
+  }
+  if (err?.code === 'ECONNREFUSED' && /querysrv|querya|_mongodb\._tcp/.test(msg)) {
+    return 'dns'
+  }
+  if (err?.code === 'ECONNREFUSED') {
+    return 'network'
+  }
+  if (err?.name === 'MongoServerSelectionError') {
+    return /timeout|timed out/i.test(msg) ? 'timeout' : 'server-selection'
+  }
+  if (err?.name === 'MongoNetworkError' || err?.name === 'MongoNetworkTimeoutError') {
+    return 'network'
+  }
+  if (err?.name === 'MongoParseError') {
+    return 'uri-format'
+  }
+  if (/authentication failed|bad auth|invalid credential/i.test(msg)) {
+    return 'auth'
+  }
+  return 'unknown'
+}
+
+function logActionableDbError(err, category) {
+  const isVercel = !!process.env.VERCEL
+  const hintByCategory = {
+    dns: isVercel
+      ? 'Atlas SRV DNS lookup failed on the platform DNS. Check Atlas status / Network Access list.'
+      : 'Local DNS resolution failed. Set DNS_RESOLVERS=1.1.1.1,8.8.8.8 in backend/.env — see config/dns.js.',
+    network: 'Could not reach MongoDB host. Check internet connection, VPN, firewall, or Atlas Network Access IP whitelist.',
+    timeout: 'Connected but server selection timed out. Check Atlas cluster load or increase serverSelectionTimeoutMS.',
+    'server-selection': 'Driver could not pick a server. Cluster may be paused, scaled to zero, or whitelist is blocking this IP.',
+    'uri-format': 'MONGO_URI is malformed. Check scheme (mongodb+srv://), host, db name, and query params.',
+    auth: 'Authentication failed — verify the database user credentials and password in MONGO_URI.',
+    unknown: 'Unspecified MongoDB driver error.',
+  }
+  const hint = hintByCategory[category] || hintByCategory.unknown
+  console.error(`[DB] Connection error — category=${category}`)
+  console.error(`[DB] Underlying message: ${err?.message || '(no message)'}`)
+  console.error(`[DB] Driver metadata:`, {
+    name: err?.name,
+    code: err?.code,
+    codeName: err?.codeName,
+  })
+  console.error(`[DB] Hint: ${hint}`)
+  try {
+    const servers = dns.getServers()
+    console.error(`[DB] Active DNS servers at failure: ${servers.join(', ')}`)
+  } catch { /* non-blocking */ }
 }
 
 /**
@@ -105,19 +163,17 @@ export async function connectDB({ force = false } = {}) {
   } catch (err) {
     cachedPromise = null
     lastConnectAt = new Date().toISOString()
-    // Capture the structured error — name + code tell us the failure class
-    // (MongoServerSelectionError / MongoNetworkError / AuthenticationFailed /
-    // MongoParseError). Stash before rethrow so /api/debug/db can report it.
+    const category = classifyDbError(err)
+    // Capture the structured error — name + code + category tell us the
+    // failure class. Stash before rethrow so /api/debug/db can report it.
     lastConnectError = {
       message: err.message,
       name: err.name,
       code: err.code ?? null,
       codeName: err.codeName ?? null,
+      category,
     }
-    console.error('[DB] MongoDB connection error:', err.message, {
-      name: err.name,
-      code: err.code,
-    })
+    logActionableDbError(err, category)
     throw err
   }
 }

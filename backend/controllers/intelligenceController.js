@@ -10,8 +10,43 @@ function attachAIHeaders(res) {
   res.setHeader('X-AI-Status', 'success')
 }
 
-async function loadChannelContext(channelId, workspaceId) {
-  const channel = await Channel.findOne({ channelId, workspaceId })
+async function loadChannelContext(channelId, workspaceId, { req } = {}) {
+  const filter = { channelId, workspaceId }
+  const channel = await Channel.findOne(filter).lean()
+
+  // Diagnostic trace — fires only on miss so the success path stays quiet.
+  // Prints: auth user, auth workspace, requested channel, query, and what
+  // IS in mongo for that channelId (so we can see which side is wrong).
+  if (!channel) {
+    const byChannelId = await Channel.findOne({ channelId }).lean()
+    console.warn('[loadChannelContext] MISS', {
+      authenticatedUserId: req?.user?._id ? String(req.user._id) : null,
+      authenticatedUserEmail: req?.user?.email || null,
+      authenticatedWorkspaceId: workspaceId ? String(workspaceId) : null,
+      authenticatedWorkspaceSource: req?.headers?.['x-workspace-id']
+        ? 'x-workspace-id header'
+        : req?.user?.activeWorkspaceId
+          ? 'user.activeWorkspaceId'
+          : '(none)',
+      requestedChannelId: channelId,
+      query: 'Channel.findOne(' + JSON.stringify(filter) + ')',
+      matchingDocument: null,
+      channelExistsWithDifferentWorkspace: byChannelId
+        ? {
+            _id: String(byChannelId._id),
+            title: byChannelId.title,
+            workspaceId: String(byChannelId.workspaceId),
+            workspaceIdMatches: String(byChannelId.workspaceId) === String(workspaceId),
+          }
+        : null,
+      hint: !byChannelId
+        ? 'Channel does not exist in DB at all — likely local/prod DB mismatch, or channel was deleted.'
+        : String(byChannelId.workspaceId) !== String(workspaceId)
+          ? `Authenticated workspace (${workspaceId}) is NOT the channel's workspace (${byChannelId.workspaceId}). The signed-in user is not a member of the workspace that owns this channel.`
+          : 'workspaceId matches but query still missed — check type coercion (ObjectId vs string).',
+    })
+  }
+
   if (!channel) throw new AppError('Channel not found', 404)
 
   const videos = await Video.find({ channelId }).sort({ publishedAt: -1 }).limit(20).lean()
@@ -287,7 +322,7 @@ export async function simulatePerformance(req, res, next) {
 export async function generateVideoIdeas(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const result = await cachedAI(channelId, 'video-ideas', () =>
       getAIProvider().generateVideoIdeas(
         { channelId, channel, videos, ...req.body },
@@ -304,7 +339,7 @@ export async function generateVideoIdeas(req, res, next) {
 export async function generateShortsIdeas(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const result = await cachedAI(channelId, 'shorts-ideas', () =>
       getAIProvider().generateShortsIdeas(
         { channelId, channel, videos, ...req.body },
@@ -318,10 +353,143 @@ export async function generateShortsIdeas(req, res, next) {
   }
 }
 
+// Resolve a single recommendation object from the video-ideas cache by id.
+// The recommendation list is already persisted by generateVideoIdeas — we
+// look it up here so the frontend only needs to send ideaId in the URL.
+// Returns { recommendation, source } where source is 'body' | 'cache' | null.
+async function resolveRecommendation(channelId, ideaId, fallback) {
+  if (fallback && typeof fallback === 'object' && String(fallback.id) === String(ideaId)) {
+    return { recommendation: fallback, source: 'body' }
+  }
+  const provider = getActiveProviderName()
+  const featureKey = `${provider}:video-ideas`
+  const cached = await IntelligenceCache.findCached(channelId, featureKey)
+  const ideas = cached?.result?.ideas
+  if (Array.isArray(ideas)) {
+    const match = ideas.find((i) => String(i.id) === String(ideaId))
+    if (match) return { recommendation: match, source: 'cache' }
+  }
+  return { recommendation: null, source: null }
+}
+
+export async function generateProductionScript(req, res, next) {
+  const startedAt = Date.now()
+  const requestId = `ps-${req.params.channelId}-${req.params.ideaId}-${startedAt}`
+  const log = (step, payload) => {
+    const elapsed = Date.now() - startedAt
+    console.log(`[ProductionScript] ${requestId} [${elapsed}ms] ${step}`, payload ?? '')
+  }
+
+  try {
+    // [1] Route entered — channelId + ideaId + regenerate flag from URL/query
+    const { channelId, ideaId } = req.params
+    const regenerate = req.query.regenerate === '1'
+    log('[1] Route entered', {
+      channelId,
+      ideaId,
+      regenerate,
+      workspaceId: req.workspaceId,
+      userId: req.user?.id || req.user?._id || '(none)',
+    })
+
+    // [2] User authenticated — already enforced by requireAuth middleware.
+    // This log line confirms the request made it past auth + workspace guards.
+    log('[2] User authenticated')
+
+    // Validate ideaId early so we fail fast with a clear message.
+    if (ideaId == null || ideaId === '' || ideaId === 'undefined' || ideaId === 'null') {
+      log('FAIL — ideaId missing in URL params')
+      throw new AppError('ideaId is required in the URL (/production-script/:ideaId)', 400)
+    }
+
+    // [3] Recommendation resolved — from body fallback or IntelligenceCache.
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
+    log('[3a] Channel context loaded', {
+      channelTitle: channel?.title,
+      subscriberCount: channel?.subscribers,
+      videoCount: videos.length,
+    })
+
+    const { recommendation, source: recSource } = await resolveRecommendation(
+      channelId,
+      ideaId,
+      req.body?.recommendation,
+    )
+    if (!recommendation) {
+      log('FAIL — recommendation not found', {
+        channelId,
+        ideaId,
+        bodyRecommendationPresent: Boolean(req.body?.recommendation),
+      })
+      throw new AppError(
+        `Recommendation ${ideaId} not found for channel ${channelId}. Regenerate video ideas first.`,
+        404,
+      )
+    }
+    log('[3b] Recommendation resolved', {
+      source: recSource,
+      ideaTitle: recommendation.title,
+    })
+
+    // [4] Prompt assembled — happens inside the provider, but we log that
+    // we're about to invoke it and which cache path will be used.
+    const provider = getAIProvider()
+    const providerName = getActiveProviderName()
+    const cacheFeature = `${providerName}:production-script`
+    log('[4] Prompt assembly handed to provider', {
+      provider: providerName,
+      cacheFeature,
+      mode: regenerate ? 'REGENERATE (cache bypassed)' : 'CACHED (will upsert on cold miss)',
+    })
+
+    const callProvider = () => provider.generateProductionScript(
+      { channelId, channel, videos, recommendation, regenerate, regenAt: regenerate ? Date.now() : undefined },
+      { channelId, feature: 'production-script' },
+    )
+
+    // Regenerate bypasses cache READ but still writes the fresh result back
+    // (cachedAI upserts on every cold call). For the regenerate path we call
+    // the provider directly and upsert ourselves so the cache stays fresh.
+    let result
+    if (regenerate) {
+      result = await callProvider()
+      try {
+        await IntelligenceCache.upsert(channelId, cacheFeature, result)
+      } catch (err) {
+        log('WARN — cache write failed (non-blocking)', { error: err.message })
+      }
+    } else {
+      result = await cachedAI(channelId, 'production-script', callProvider)
+    }
+
+    // [9] Response returned
+    log('[9] Response ready', {
+      durationMs: Date.now() - startedAt,
+      timelineSections: Array.isArray(result?.timeline) ? result.timeline.length : 0,
+      hasOverview: Boolean(result?.overview),
+    })
+
+    attachAIHeaders(res)
+    res.json(withMeta(result, 'production-script'))
+  } catch (err) {
+    const elapsed = Date.now() - startedAt
+    console.error(`[ProductionScript] ${requestId} [${elapsed}ms] FAIL`, {
+      name: err?.name,
+      message: err?.message,
+      code: err?.code,
+      status: err?.status,
+      // Surface the upstream OpenAI / Azure shape if present so a 503 from
+      // the model is diagnosable without re-running with extra logging.
+      aiError: err?.cause?.message || err?.error?.message || null,
+    })
+    next(err)
+  }
+}
+
 export async function getContentGaps(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const result = await cachedAI(channelId, 'content-gaps', () =>
       getAIProvider().getContentGaps(
         { channelId, channel, videos, competitors: req.body?.competitors || [] },
@@ -338,7 +506,7 @@ export async function getContentGaps(req, res, next) {
 export async function getStrategistTips(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const result = await cachedAI(channelId, 'strategist-tips', () =>
       getAIProvider().getStrategistTips(
         { channelId, channel, videos },
@@ -355,7 +523,7 @@ export async function getStrategistTips(req, res, next) {
 export async function predictPerformance(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const provider = getAIProvider()
     const result = await provider.predictPerformance(
       { channelId, channel, videos, ...req.body },
@@ -371,7 +539,7 @@ export async function predictPerformance(req, res, next) {
 export async function summarizeAlerts(req, res, next) {
   try {
     const { channelId } = req.params
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
     const result = await cachedAI(channelId, 'alerts-summary', () =>
       getAIProvider().summarizeAlerts(
         {
@@ -405,7 +573,7 @@ export async function getCompetitorOpportunities(req, res, next) {
     }
 
     // Load active channel context
-    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId)
+    const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
 
     // Load competitor/portfolio channels in workspace
     const workspaceChannels = await Channel.find({ workspaceId: req.workspaceId }).lean()

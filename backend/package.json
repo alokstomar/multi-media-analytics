@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "db:check": "node scripts/db-check.js",
     "test:instagram": "node test_instagram_publishing.js",
     "test:audit": "node stability_audit.js"
   },

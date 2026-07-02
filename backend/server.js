@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import './config/dns.js'
 import express from 'express'
 import cors from 'cors'
 import { connectDB, verifyDbConnected, getDbStatus } from './config/db.js'
@@ -62,7 +63,10 @@ app.get('/api/debug/db', async (req, res) => {
       // swallowed — the error is now in module state and will be reported below
     }
   }
-  res.json(getDbStatus())
+  // Compose DB + DNS state — a DNS outage surfaces here as a DNS-class
+  // lastConnectError, so showing the DNS snapshot makes the cause obvious.
+  const { getDnsStatus } = await import('./config/dns.js')
+  res.json({ ...getDbStatus(), dns: getDnsStatus() })
 })
 
 // Ensure database connection is active for all API routes
