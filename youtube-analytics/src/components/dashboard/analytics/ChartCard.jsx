@@ -30,17 +30,12 @@ export default function ChartCard({ monthlyViews = [], overview = {} }) {
     })
   }
 
-  let latestYear = new Date().getFullYear()
-  let latestMonth = new Date().getMonth()
-
-  if (monthlyViews?.length) {
-    const sorted = [...monthlyViews].sort((a, b) => b.month.localeCompare(a.month))
-    const parts = sorted[0].month.split('-')
-    if (parts.length === 2) {
-      latestYear = parseInt(parts[0], 10)
-      latestMonth = parseInt(parts[1], 10) - 1
-    }
-  }
+  // Always anchor the 6-month window to the CURRENT month, not to the
+  // newest data point. If we used the latest data month as the anchor,
+  // channels that haven't published recently (e.g. last video = Feb)
+  // would render a Feb-anchored window (Sep–Feb) even when it's June.
+  const latestYear  = new Date().getFullYear()
+  const latestMonth = new Date().getMonth()   // 0-indexed
 
   const avgViews = overview.averageViews || 150000
   const freq = overview.uploadFrequency || 3
