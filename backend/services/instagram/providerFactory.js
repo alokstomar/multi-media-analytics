@@ -13,7 +13,6 @@ export const providerFactory = {
     if (activeInstance) return activeInstance
 
     const providerType = (process.env.INSTAGRAM_PROVIDER || 'mock').toLowerCase()
-    console.log(`[Instagram Factory] Resolving active data provider: [${providerType}]`)
 
     switch (providerType) {
       case 'rapidapi':

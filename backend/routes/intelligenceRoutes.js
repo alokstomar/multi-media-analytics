@@ -15,6 +15,22 @@ import {
   simulatePerformance,
   getCompetitorOpportunities,
 } from '../controllers/intelligenceController.js'
+import {
+  getScriptWorkspace,
+  generateStyledScriptController,
+  saveScriptWorkspace,
+  undoScriptWorkspace,
+  redoScriptWorkspace,
+  transformScript,
+  scoreScriptStyleController,
+  analyzeCreatorStyleController,
+} from '../controllers/scriptWorkspaceController.js'
+import {
+  getResearch,
+  analyzeResearch,
+  applySuggestion,
+  ignoreSuggestion,
+} from '../controllers/researchController.js'
 
 const router = Router()
 
@@ -46,6 +62,28 @@ router.post('/:channelId/content-gaps', getContentGaps)
 router.post('/:channelId/strategist', getStrategistTips)
 router.post('/:channelId/predict-performance', predictPerformance)
 router.post('/:channelId/alerts-summary', summarizeAlerts)
+
+// ── Script Workspace 2.0 ────────────────────────────────────────────────
+// Channel-aware AI content studio. Replaces the legacy read-only production-
+// script page on the frontend. Server-side persistence + version history.
+router.get('/:channelId/script-workspace/:ideaId', getScriptWorkspace)
+router.post('/:channelId/script-workspace/:ideaId/generate', generateStyledScriptController)
+router.post('/:channelId/script-workspace/:ideaId/save', saveScriptWorkspace)
+router.post('/:channelId/script-workspace/:ideaId/undo', undoScriptWorkspace)
+router.post('/:channelId/script-workspace/:ideaId/redo', redoScriptWorkspace)
+router.post('/:channelId/script-workspace/:ideaId/transform', transformScript)
+router.post('/:channelId/script-workspace/:ideaId/style-score', scoreScriptStyleController)
+router.post('/:channelId/creator-style', analyzeCreatorStyleController)
+
+// ── Research Workspace (Phase 2) ─────────────────────────────────────────
+// Provider-agnostic fact-checking & suggestion engine. Reads the script
+// from the workspace, runs claim extraction + (optional) web search + final
+// analysis, returns a ResearchReport with claims/suggestions/score. Apply
+// pushes a new version with source='research-suggestion'.
+router.get('/:channelId/script-workspace/:ideaId/research', getResearch)
+router.post('/:channelId/script-workspace/:ideaId/research/analyze', analyzeResearch)
+router.post('/:channelId/script-workspace/:ideaId/research/suggestions/:suggestionId/apply', applySuggestion)
+router.post('/:channelId/script-workspace/:ideaId/research/suggestions/:suggestionId/ignore', ignoreSuggestion)
 
 // Input-scoped analysis (no channel required)
 router.post('/analyze/title', analyzeTitle)

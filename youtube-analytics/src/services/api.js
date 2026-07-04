@@ -292,6 +292,116 @@ export const generateProductionScript = (channelId, ideaId, { regenerate = false
       .then((r) => r.data),
   )
 
+// ── Script Workspace 2.0 ────────────────────────────────────────────────
+// Channel-aware AI content studio. Server-side persistence with version
+// history (undo/redo). Every non-mutation uses dedupeAI; mutations bypass
+// dedupe (each call must reach the server).
+
+export const getScriptWorkspace = (channelId, ideaId) =>
+  dedupeAI(`script-workspace:get:${channelId}:${ideaId}`, () =>
+    api.get(`/api/intelligence/${channelId}/script-workspace/${ideaId}`, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const generateStyledScript = (channelId, ideaId, { mode = 'similar', regenerate = false, recommendation = null } = {}) =>
+  dedupeAI(
+    `script-workspace:gen:${channelId}:${ideaId}:${mode}${regenerate ? ':regen' : ''}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/script-workspace/${ideaId}/generate`,
+        { mode, regenerate, recommendation },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+// Save bypasses dedupe — every keystroke/save must hit the server.
+export const saveScriptWorkspace = (channelId, ideaId, { working, source = 'user-edit', action = null, commit = false, styleMatch = null } = {}) =>
+  api
+    .post(
+      `/api/intelligence/${channelId}/script-workspace/${ideaId}/save`,
+      { working, source, action, commit, styleMatch },
+      { timeout: AI_TIMEOUT },
+    )
+    .then((r) => r.data)
+
+export const undoScriptWorkspace = (channelId, ideaId) =>
+  dedupeAI(`script-workspace:undo:${channelId}:${ideaId}`, () =>
+    api.post(`/api/intelligence/${channelId}/script-workspace/${ideaId}/undo`, {}, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const redoScriptWorkspace = (channelId, ideaId) =>
+  dedupeAI(`script-workspace:redo:${channelId}:${ideaId}`, () =>
+    api.post(`/api/intelligence/${channelId}/script-workspace/${ideaId}/redo`, {}, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const transformScript = (channelId, ideaId, { action, script = null }) =>
+  dedupeAI(
+    `script-workspace:transform:${channelId}:${ideaId}:${action}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/script-workspace/${ideaId}/transform`,
+        { action, script },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+export const scoreScriptStyle = (channelId, ideaId, { script = null } = {}) =>
+  dedupeAI(
+    `script-workspace:stylescore:${channelId}:${ideaId}:${(script?.fullScript || '').length}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/script-workspace/${ideaId}/style-score`,
+        { script },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+export const analyzeCreatorStyle = (channelId, { regenerate = false } = {}) =>
+  dedupeAI(
+    `creator-style:${channelId}${regenerate ? ':regen' : ''}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/creator-style`,
+        { regenerate },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+// ── Research Workspace (Phase 2) ─────────────────────────────────────────
+// Provider-agnostic fact-checking & suggestion engine. GET returns the
+// cached report if the scriptHash matches; otherwise it triggers analysis.
+// Analyze bypasses dedupe (each request must reach the server fresh).
+export const getResearchReport = (channelId, ideaId) =>
+  dedupeAI(`research:get:${channelId}:${ideaId}`, () =>
+    api.get(`/api/intelligence/${channelId}/script-workspace/${ideaId}/research`, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const analyzeResearch = (channelId, ideaId) =>
+  api
+    .post(
+      `/api/intelligence/${channelId}/script-workspace/${ideaId}/research/analyze`,
+      {},
+      { timeout: AI_TIMEOUT },
+    )
+    .then((r) => r.data)
+
+export const applyResearchSuggestion = (channelId, ideaId, suggestionId) =>
+  api
+    .post(
+      `/api/intelligence/${channelId}/script-workspace/${ideaId}/research/suggestions/${suggestionId}/apply`,
+      {},
+      { timeout: AI_TIMEOUT },
+    )
+    .then((r) => r.data)
+
+export const ignoreResearchSuggestion = (channelId, ideaId, suggestionId) =>
+  api
+    .post(
+      `/api/intelligence/${channelId}/script-workspace/${ideaId}/research/suggestions/${suggestionId}/ignore`,
+      {},
+      { timeout: AI_TIMEOUT },
+    )
+    .then((r) => r.data)
+
 export const getContentGaps = (channelId, payload = {}) =>
   dedupeAI(`content-gaps:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/content-gaps`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))

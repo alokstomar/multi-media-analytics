@@ -7,7 +7,7 @@ import { aiLocalStorage } from '../../utils/aiContext.js'
 import { incrementProviderFallback } from '../../utils/aiUsage.js'
 
 const providerType = process.env.AI_PROVIDER || 'stub'
-const openaiApiKey = process.env.OPENAI_API_KEY
+const deepseekApiKey = process.env.DEEPSEEK_API_KEY
 const geminiApiKey = process.env.GEMINI_API_KEY
 const groqApiKey = process.env.GROQ_API_KEY
 
@@ -24,6 +24,10 @@ const PROVIDER_METHOD_NAMES = [
   'generateVideoIdeas', 'generateShortsIdeas',
   'generateProductionScript',
   'getStrategistTips', 'getContentGaps', 'summarizeAlerts', 'simulatePerformance', 'generateCompetitorOpportunities',
+  // Script Workspace 2.0 — channel-aware script generation
+  'analyzeCreatorStyle', 'generateStyledScript', 'rewriteScript', 'scoreScriptStyle',
+  // Research Workspace (Phase 2) — claim extraction + final analysis pass
+  'extractScriptClaims', 'analyzeScriptResearch',
   // Portfolio Intelligence
   'getPortfolioSummary', 'getAudienceOverlap', 'getCrossPromotion',
   'getPortfolioContentGaps', 'getCannibalization', 'getPortfolioStrategist',
@@ -108,18 +112,18 @@ let activeProviderInstance
 let activeProviderLabel = 'stub'
 const stubProvider = new StubAIProvider()
 
-if (providerType === 'openai' && openaiApiKey) {
-  const primary = new OpenAIProvider(openaiApiKey)
+if (providerType === 'deepseek' && deepseekApiKey) {
+  const primary = new OpenAIProvider(deepseekApiKey)
   const fallback = geminiApiKey ? new GeminiProvider(geminiApiKey) : null
   activeProviderInstance = buildProductionProxy(
     primary,
-    'openai',
-    process.env.OPENAI_FAST_MODEL || 'gpt-5-mini',
+    'deepseek',
+    process.env.DEEPSEEK_MODEL || 'DeepSeek-V4-Pro',
     fallback,
     'gemini'
   )
-  activeProviderLabel = 'openai'
-  console.log('AI Growth Engine: Active Provider resolved to [OpenAI] (fallback to Gemini enabled)')
+  activeProviderLabel = 'deepseek'
+  console.log('AI Growth Engine: Active Provider resolved to [DeepSeek] (fallback to Gemini enabled)')
 } else if (providerType === 'gemini' && geminiApiKey) {
   activeProviderInstance = buildProductionProxy(
     new GeminiProvider(geminiApiKey),

@@ -10,6 +10,9 @@ import InstagramProvider from './instagramProvider.js'
 // use numeric segments (e.g. "edges.0.node.text").
 
 const USER_ID_CANDIDATES = [
+  // Purchased product (instagram-api-fast-reliable-data-scraper) returns
+  // {UserID, UserName} from /user_id_by_username — PascalCase, top-level.
+  'UserID',
   'user_id', 'id', 'pk', 'pk_id', 'instagramUserId', 'userId',
   'data.user_id', 'data.id', 'data.pk', 'data.pk_id', 'data.userId',
   'user.id', 'user.pk', 'user.user_id',
@@ -36,13 +39,16 @@ const REEL_ITEMS_ARRAY_CANDIDATES = [
 ]
 
 const REEL_FIELD_CANDIDATES = {
-  reelId: ['id', 'pk', 'media_id', 'mediaId', 'reelId'],
-  caption: ['caption.text', 'caption', 'text', 'edge_media_to_caption.edges.0.node.text'],
-  views: ['play_count', 'view_count', 'views', 'video_view_count', 'video_views', 'video_play_count'],
-  likes: ['like_count', 'likes', 'likeCount', 'edge_media_preview_like.count', 'edge_liked_by.count'],
-  comments: ['comment_count', 'comments', 'commentCount', 'edge_media_to_comment.count', 'edge_media_preview_comment.count'],
-  mediaType: ['media_type', 'type', 'mediaType'],
-  timestamp: ['taken_at', 'created_at', 'date', 'timestamp', 'taken_at_iso', 'created_at_iso'],
+  // Purchased product wraps each item as {media: {...}} inside data.items[].
+  // The _parseReelItem helper does not unwrap item.media, so media.* paths
+  // must be first-class candidates.
+  reelId: ['media.id', 'media.pk', 'media.media_id', 'id', 'pk', 'media_id', 'mediaId', 'reelId'],
+  caption: ['media.caption.text', 'caption.text', 'caption', 'text', 'edge_media_to_caption.edges.0.node.text'],
+  views: ['media.play_count', 'media.view_count', 'play_count', 'view_count', 'views', 'video_view_count', 'video_views', 'video_play_count'],
+  likes: ['media.like_count', 'media.likes', 'like_count', 'likes', 'likeCount', 'edge_media_preview_like.count', 'edge_liked_by.count'],
+  comments: ['media.comment_count', 'media.comments', 'comment_count', 'comments', 'commentCount', 'edge_media_to_comment.count', 'edge_media_preview_comment.count'],
+  mediaType: ['media.media_type', 'media.type', 'media_type', 'type', 'mediaType'],
+  timestamp: ['media.taken_at', 'media.created_at', 'taken_at', 'created_at', 'date', 'timestamp', 'taken_at_iso', 'created_at_iso'],
 }
 
 const COMMENT_ITEMS_ARRAY_CANDIDATES = [

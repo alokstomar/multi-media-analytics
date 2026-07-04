@@ -1,5 +1,4 @@
 import { createHash } from 'crypto'
-import OpenAI from 'openai'
 import { AIProviderInterface } from './providerInterface.js'
 import AIResponseCache from '../../models/AIResponseCache.js'
 import AIUsageLog from '../../models/AIUsageLog.js'
@@ -15,6 +14,27 @@ import {
   getCannibalizationFallback,
   getPortfolioStrategistFallback
 } from '../../utils/portfolioContext.js'
+
+// ── DeepSeekAPIError ───────────────────────────────────────────────────
+// Mirrors the OpenAI SDK's APIError shape so existing catch blocks that read
+// err.status / err.error?.code / err.error?.message / err.headers?.['x-request-id']
+// keep working without changes. Thrown by _chatCompletions() on any non-2xx
+// response or network failure.
+export class DeepSeekAPIError extends Error {
+  constructor({ status, code, message, requestId, cause }) {
+    super(message || `${status || 'ERR'} ${code || 'deepseek_error'}`)
+    this.name = 'DeepSeekAPIError'
+    this.status = status ?? null
+    this.error = { code: code || 'deepseek_error', message: message || '' }
+    this.headers = requestId ? { 'x-request-id': requestId } : {}
+    if (cause) this.cause = cause
+  }
+}
+
+// Sleep helper with optional jitter (fraction of base delay).
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 // ── Per-method cache TTL configuration (hours) ──────────────────────────
 const CACHE_TTL = {
@@ -42,6 +62,16 @@ const CACHE_TTL = {
   // Production scripts are expensive to regenerate and stable once written —
   // cache for a week so revisit/regenerate-from-scratch is fast but still possible.
   generateProductionScript: 168,
+  // Script Workspace 2.0 — creator-style-aware script generation
+  analyzeCreatorStyle: 168,        // a channel's voice changes slowly — 1 week
+  generateStyledScript: 168,       // stable per (channel, idea, mode)
+  rewriteScript: 24,               // transform actions are cheaper, shorter-lived
+  scoreScriptStyle: 24,
+  // Research Workspace (Phase 2) — claim extraction is cheap-ish, but cache
+  // to avoid re-running on unchanged script. analyzeScriptResearch is the
+  // expensive final pass — cache a full day.
+  extractScriptClaims: 6,
+  analyzeScriptResearch: 24,
   // Portfolio Intelligence — expensive multi-channel computations, cache aggressively
   getPortfolioStrategist: 24,
   getAudienceOverlap: 24,
@@ -67,6 +97,12 @@ const PREMIUM_METHODS = new Set([
   'getPortfolioSummary',
   // Production script generation — long-form structured reasoning
   'generateProductionScript',
+  // Script Workspace 2.0 — creator-style analysis and generation
+  'analyzeCreatorStyle',
+  'generateStyledScript',
+  'scoreScriptStyle',
+  // Research Workspace — final pass combines claims + sources into a verdict.
+  'analyzeScriptResearch',
 ])
 
 function makeCacheKey(method, params) {
@@ -298,6 +334,58 @@ const VALIDATORS = {
         && typeof o.reason === 'string'
       )
   },
+  // ── Script Workspace 2.0 ─────────────────────────────────────────────
+  analyzeCreatorStyle(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (typeof obj.summary !== 'string') return false
+    // Permissive: the style profile is mostly soft signals — we only require
+    // that the AI returned a summary string and at least one structured
+    // signal it chose to surface. Specific sub-keys (languageMix, hookStyle,
+    // etc.) are best-effort and not enforced.
+    return true
+  },
+  generateStyledScript(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (typeof obj.title !== 'string') return false
+    if (typeof obj.hook !== 'string') return false
+    if (typeof obj.fullScript !== 'string' || obj.fullScript.trim().length === 0) return false
+    if (typeof obj.cta !== 'string') return false
+    // styleMatch is required — the differentiator of this whole feature.
+    if (!obj.styleMatch || typeof obj.styleMatch !== 'object') return false
+    if (typeof obj.styleMatch.overall !== 'number') return false
+    return true
+  },
+  rewriteScript(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (typeof obj.fullScript !== 'string' || obj.fullScript.trim().length === 0) return false
+    return true
+  },
+  scoreScriptStyle(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (!obj.styleMatch || typeof obj.styleMatch !== 'object') return false
+    if (typeof obj.styleMatch.overall !== 'number') return false
+    return true
+  },
+  // Research Workspace (Phase 2) — accept either a bare array of claims
+  // OR the { claims: [...] } wrapper the prompt instructs the model to
+  // return. Normalize internally so the rest of the pipeline doesn't care.
+  extractScriptClaims(obj) {
+    const arr = Array.isArray(obj) ? obj : obj?.claims
+    return Array.isArray(arr) && arr.every((c) =>
+      c && typeof c.text === 'string' && typeof c.type === 'string'
+    )
+  },
+  // Final research pass returns the report shape: claims with verdicts,
+  // structured suggestions, missing-context list, and a researchScore.
+  analyzeScriptResearch(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (!Array.isArray(obj.claims)) return false
+    if (!Array.isArray(obj.suggestions)) return false
+    if (!Array.isArray(obj.missingContext)) return false
+    if (!obj.researchScore || typeof obj.researchScore !== 'object') return false
+    if (typeof obj.researchScore.overall !== 'number') return false
+    return true
+  },
 }
 
 
@@ -306,42 +394,167 @@ export class OpenAIProvider extends AIProviderInterface {
     super()
     this.apiKey = apiKey
 
-    const clientOptions = { apiKey }
+    // DeepSeek V4 (or any OpenAI-compatible gateway) — base URL stripping.
+    // Accepts both "https://.../openai/v1" and the full "https://.../openai/v1/chat/completions"
+    // form so operators can paste either without breaking.
+    const rawBaseURL = process.env.DEEPSEEK_BASE_URL || ''
+    this.baseURL = rawBaseURL.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '')
 
-    // Azure AI Foundry / any OpenAI-compatible gateway. Stock OpenAI SDK
-    // works against /openai/v1 — just needs baseURL. Bearer auth (which
-    // the SDK auto-sends from apiKey) is accepted; no api-version needed.
-    if (process.env.OPENAI_BASE_URL) {
-      clientOptions.baseURL = process.env.OPENAI_BASE_URL
-    }
-
-    this.client = new OpenAI(clientOptions)
-
-    // The Azure resource may only deploy specific models (e.g. gpt-5.4).
-    // Fail loudly at boot if model envs are missing rather than 404-ing
-    // on first request with DeploymentNotFound.
-    this.fastModel = process.env.OPENAI_FAST_MODEL
-    this.premiumModel = process.env.OPENAI_PREMIUM_MODEL
+    // DeepSeek V4 exposes one model; the fast/premium tier distinction collapses.
+    // Both fields point at DEEPSEEK_MODEL so PREMIUM_METHODS / _getModel() stay
+    // semantically valid but become a no-op.
+    this.fastModel = process.env.DEEPSEEK_MODEL
+    this.premiumModel = process.env.DEEPSEEK_MODEL
     if (!this.fastModel || !this.premiumModel) {
       throw new Error(
-        'OPENAI_FAST_MODEL and OPENAI_PREMIUM_MODEL must both be set '
-        + 'when AI_PROVIDER=openai. The Azure resource has no default deployment.'
+        'DEEPSEEK_MODEL must be set when AI_PROVIDER=deepseek. '
+        + 'The deployment has no default model.'
       )
     }
 
-    this.dailyBudget = parseFloat(process.env.OPENAI_DAILY_BUDGET_USD) || Infinity
-    this.monthlyBudget = parseFloat(process.env.OPENAI_MONTHLY_BUDGET_USD) || Infinity
+    this.timeoutMs = parseInt(process.env.DEEPSEEK_TIMEOUT_MS, 10) || 120000
+    this.maxRetries = parseInt(process.env.DEEPSEEK_MAX_RETRIES, 10) || 2
+
+    this.dailyBudget = parseFloat(process.env.DEEPSEEK_DAILY_BUDGET_USD) || Infinity
+    this.monthlyBudget = parseFloat(process.env.DEEPSEEK_MONTHLY_BUDGET_USD) || Infinity
     // Subclass hooks: keep these as instance fields so GroqProvider (or any
     // other OpenAI-compatible provider) can override them in its constructor
     // without duplicating _execute / analyzeThumbnail / _checkBudget.
-    this.providerKey = 'openai'         // stored on AIResponseCache.provider
-    this.providerLabel = 'OpenAI'       // used in error messages
-    this.logPrefix = '[AI OpenAI]'      // used in console.log success lines
+    this.providerKey = 'deepseek'        // stored on AIResponseCache.provider
+    this.providerLabel = 'DeepSeek'      // used in error messages
+    this.logPrefix = '[AI DeepSeek]'     // used in console.log success lines
 
     console.log(
-      `[AI OpenAI] Initializing — baseURL=${this.client.baseURL}, `
-      + `fast=${this.fastModel}, premium=${this.premiumModel}`
+      `[AI DeepSeek] Initializing — baseURL=${this.baseURL}, `
+      + `model=${this.fastModel}`
     )
+    // Boot-time diagnostic — proves which key the provider is actually using
+    // WITHOUT exposing the secret. Hash is sha256(key) first 16 hex chars;
+    // safe to log, not reversible. Compare across environments to detect
+    // stale/rotated/whitespace-corrupted values.
+    const keyHash = createHash('sha256').update(String(this.apiKey)).digest('hex').slice(0, 16)
+    console.log('[AI DeepSeek] Credential fingerprint', {
+      apiKeyConfigured: !!this.apiKey,
+      apiKeyLength: this.apiKey ? this.apiKey.length : 0,
+      apiKeyHash: keyHash,
+      apiKeyHasWhitespace: this.apiKey ? /\s/.test(this.apiKey) : null,
+      apiKeyHasQuotes: this.apiKey ? /^[\"']|[\"']$/.test(this.apiKey) : null,
+      baseURL: this.baseURL,
+      model: this.fastModel,
+      timeoutMs: this.timeoutMs,
+      maxRetries: this.maxRetries,
+      aiProvider: process.env.AI_PROVIDER,
+      nodeEnv: process.env.NODE_ENV,
+      vercel: process.env.VERCEL,
+    })
+  }
+
+  // ── Chat Completions transport (OpenAI-compatible fetch) ─────────────
+  // Single internal helper replacing the OpenAI SDK. Sends both auth headers
+  // (Authorization: Bearer + api-key) so Azure AI Foundry, direct DeepSeek,
+  // and Groq all accept the call. Retries 408/409/429/>=500 with exp backoff.
+  // Throws DeepSeekAPIError shaped like the SDK's APIError so the catch
+  // blocks in _execute / analyzeThumbnail / simulatePerformance read the
+  // same .status / .error.code / .headers fields unchanged.
+  async _chatCompletions({ model, messages, temperature, response_format }) {
+    const url = `${this.baseURL}/chat/completions`
+    const body = JSON.stringify({
+      model,
+      messages,
+      ...(temperature != null ? { temperature } : {}),
+      ...(response_format ? { response_format } : {}),
+    })
+
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${this.apiKey}`,
+      'api-key': this.apiKey,
+    }
+
+    let lastError
+    const attempts = Math.max(0, this.maxRetries) + 1
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs)
+      let res
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: baseHeaders,
+          body,
+          signal: controller.signal,
+        })
+      } catch (networkErr) {
+        clearTimeout(timer)
+        const aborted = networkErr?.name === 'AbortError'
+        lastError = new DeepSeekAPIError({
+          status: aborted ? 408 : null,
+          code: aborted ? 'request_timeout' : 'network_error',
+          message: aborted
+            ? `Request timed out after ${this.timeoutMs}ms`
+            : (networkErr?.message || 'Network error'),
+          cause: networkErr,
+        })
+        // Network errors are retryable.
+        if (attempt < attempts - 1) {
+          await sleep(this._backoffMs(attempt))
+          continue
+        }
+        throw lastError
+      }
+      clearTimeout(timer)
+
+      const requestId = res.headers.get('x-request-id') || null
+
+      if (!res.ok) {
+        let errBody = null
+        try { errBody = await res.json() } catch { try { errBody = await res.text() } catch {} }
+        const code = (errBody && typeof errBody === 'object'
+          ? (errBody.error?.code || errBody.code)
+          : null) || `http_${res.status}`
+        const message = (errBody && typeof errBody === 'object'
+          ? (errBody.error?.message || errBody.message)
+          : (typeof errBody === 'string' ? errBody : null)) || res.statusText
+
+        lastError = new DeepSeekAPIError({ status: res.status, code, message, requestId })
+
+        const retryable = res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500
+        if (retryable && attempt < attempts - 1) {
+          // Honor Retry-After on 429 if present.
+          const retryAfter = res.headers.get('retry-after')
+          const delay = retryAfter
+            ? Math.min(parseInt(retryAfter, 10) * 1000 || this._backoffMs(attempt), this.timeoutMs)
+            : this._backoffMs(attempt)
+          await sleep(delay)
+          continue
+        }
+        throw lastError
+      }
+
+      // 2xx — parse and return shaped like OpenAI SDK's completion object.
+      let parsed
+      try {
+        parsed = await res.json()
+      } catch (parseErr) {
+        throw new DeepSeekAPIError({
+          status: res.status,
+          code: 'invalid_json',
+          message: `Failed to parse response JSON: ${parseErr.message}`,
+          requestId,
+          cause: parseErr,
+        })
+      }
+      return parsed
+    }
+    // Exhausted retries — throw the last seen error (or a generic fallback).
+    throw lastError || new DeepSeekAPIError({ code: 'unknown', message: 'Exhausted retries' })
+  }
+
+  // Exponential backoff: 500ms × 1.5^attempt ± 25% jitter.
+  _backoffMs(attempt) {
+    const base = 500 * Math.pow(1.5, attempt)
+    const jitter = base * 0.25 * (Math.random() * 2 - 1)
+    return Math.max(0, Math.round(base + jitter))
   }
 
   // ── Core execution pipeline ───────────────────────────────────────────
@@ -349,7 +562,7 @@ export class OpenAIProvider extends AIProviderInterface {
   async healthCheck() {
     return {
       provider: this.providerKey,
-      baseURL: this.client.baseURL,
+      baseURL: this.baseURL,
       fastModel: this.fastModel,
       premiumModel: this.premiumModel,
       apiKeyConfigured: !!this.apiKey,
@@ -437,7 +650,7 @@ export class OpenAIProvider extends AIProviderInterface {
     // 2. Check budget
     await this._checkBudget(userId)
 
-    // 3. Call OpenAI
+    // 3. Call DeepSeek (or OpenAI-compatible gateway via _chatCompletions)
     const model = options.model || this._getModel(method)
     const temperature = options.temperature ?? 0.8
     const startTime = Date.now()
@@ -447,7 +660,7 @@ export class OpenAIProvider extends AIProviderInterface {
 
     let completion
     try {
-      completion = await this.client.chat.completions.create({
+      completion = await this._chatCompletions({
         model,
         response_format: { type: 'json_object' },
         messages: [
@@ -457,15 +670,31 @@ export class OpenAIProvider extends AIProviderInterface {
         temperature
       })
     } catch (err) {
-      // OpenAI SDK throws APIError with .status, .error.code, .error.message.
-      // Log the structured shape so Azure-side failures are diagnosable
-      // instead of looking like opaque 503s on the frontend.
-      console.error(`[AI OpenAI] ${method} call failed —`, {
+      // _chatCompletions throws DeepSeekAPIError shaped like the OpenAI SDK's
+      // APIError — .status, .error.code, .error.message, .headers['x-request-id'].
+      // For 401/403 (auth-class) failures, also log the credential fingerprint
+      // — that's the only way to prove whether the key that actually left the
+      // process matches the one in your local .env. Hash, not the value.
+      const isAuthError = err.status === 401 || err.status === 403
+      const keyHash = createHash('sha256').update(String(this.apiKey)).digest('hex').slice(0, 16)
+      console.error(`[AI DeepSeek] ${method} call failed —`, {
         status: err.status,
         code: err.error?.code,
         message: err.error?.message || err.message,
-        baseURL: this.client.baseURL,
+        baseURL: this.baseURL,
         model,
+        requestId: err.headers?.['x-request-id'] || null,
+        ...(isAuthError
+          ? {
+              credentialFingerprint: {
+                apiKeyConfigured: !!this.apiKey,
+                apiKeyLength: this.apiKey ? this.apiKey.length : 0,
+                apiKeyHash: keyHash,
+                apiKeyHasWhitespace: this.apiKey ? /\s/.test(this.apiKey) : null,
+                apiKeyHasQuotes: this.apiKey ? /^[\"']|[\"']$/.test(this.apiKey) : null,
+              },
+            }
+          : {}),
       })
       throw err
     }
@@ -870,8 +1099,8 @@ Thumbnail design: ${thumbnail ? 'Base64 image design attached for visual analysi
         const model = this.premiumModel
         const startTime = Date.now()
 
-        console.log(`[AI OpenAI] Executing simulatePerformance (vision call) using model: ${model}`)
-        const completion = await this.client.chat.completions.create({
+        console.log(`[AI DeepSeek] Executing simulatePerformance (vision call) using model: ${model}`)
+        const completion = await this._chatCompletions({
           model,
           response_format: { type: 'json_object' },
           messages: [
@@ -996,8 +1225,8 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
 
     let completion
     try {
-      console.log(`[AI OpenAI] Executing analyzeThumbnail vision call using model: ${model}`)
-      completion = await this.client.chat.completions.create({
+      console.log(`[AI DeepSeek] Executing analyzeThumbnail vision call using model: ${model}`)
+      completion = await this._chatCompletions({
         model,
         response_format: { type: 'json_object' },
         messages: [
@@ -1007,7 +1236,7 @@ Be rigorous and analytical. Improvements must reference specific elements visibl
         temperature: 0.3,
       })
     } catch (apiErr) {
-      console.error(`[AI OpenAI] Error during OpenAI/Azure Vision API execution:`, apiErr)
+      console.error(`[AI DeepSeek] Error during vision API execution:`, apiErr)
       throw apiErr
     }
 
@@ -1506,7 +1735,7 @@ Identify 5 content gaps and 4 niche trends for this channel.`
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getPortfolioSummary', params, systemPrompt, userPrompt)
     } catch (err) {
-      console.warn('[AI OpenAI] getPortfolioSummary call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getPortfolioSummary call failed, using fallback:', err.message)
       return getPortfolioSummaryFallback(portfolioCtx)
     }
   }
@@ -1542,7 +1771,7 @@ Rules:
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getAudienceOverlap', params, systemPrompt, userPrompt)
     } catch (err) {
-      console.warn('[AI OpenAI] getAudienceOverlap call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getAudienceOverlap call failed, using fallback:', err.message)
       return getAudienceOverlapFallback(portfolioCtx)
     }
   }
@@ -1572,7 +1801,7 @@ Generate 2-5 promotions. Each should be a concrete actionable idea, not generic 
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getCrossPromotion', params, systemPrompt, userPrompt)
     } catch (err) {
-      console.warn('[AI OpenAI] getCrossPromotion call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getCrossPromotion call failed, using fallback:', err.message)
       return getCrossPromotionFallback(portfolioCtx)
     }
   }
@@ -1616,7 +1845,7 @@ Generate 4-6 gap opportunities aligned with the portfolio's existing niches.`
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getPortfolioContentGaps', params, systemPrompt, userPrompt)
     } catch (err) {
-      console.warn('[AI OpenAI] getPortfolioContentGaps call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getPortfolioContentGaps call failed, using fallback:', err.message)
       return getPortfolioContentGapsFallback(portfolioCtx)
     }
   }
@@ -1645,7 +1874,7 @@ If no significant cannibalization, return empty warnings array.`
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getCannibalization', params, systemPrompt, userPrompt)
     } catch (err) {
-      console.warn('[AI OpenAI] getCannibalization call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getCannibalization call failed, using fallback:', err.message)
       return getCannibalizationFallback(portfolioCtx)
     }
   }
@@ -1693,7 +1922,7 @@ Rules:
       const params = { channelIds: portfolioCtx.channels.map(c => c.channelId).sort() }
       return await this._execute('getPortfolioStrategist', params, systemPrompt, userPrompt, { temperature: 0.4 })
     } catch (err) {
-      console.warn('[AI OpenAI] getPortfolioStrategist call failed, using fallback:', err.message)
+      console.warn('[AI DeepSeek] getPortfolioStrategist call failed, using fallback:', err.message)
       return getPortfolioStrategistFallback(portfolioCtx)
     }
   }
@@ -1732,6 +1961,472 @@ Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, vi
       systemPrompt,
       userPrompt,
       { temperature: 0.7 }
+    )
+  }
+
+  // ── Script Workspace 2.0 ────────────────────────────────────────────
+  // Analyzes a creator's historical videos + channel description and builds
+  // a Creator Style Profile. The profile is the input to generateStyledScript
+  // and scoreScriptStyle — it's what makes the output sound like the creator
+  // rather than generic AI prose.
+  //
+  // v1 limitation: Video model has no transcript field, so this works from
+  // titles + channel description + thumbnail URLs only. Hook style, rhythm,
+  // and vocabulary scores are inferred from title patterns and description
+  // tone. Once transcripts are added to Video, this method should be updated
+  // to use them — quality will jump substantially.
+  async analyzeCreatorStyle(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    const topVideos = videos.slice(0, 15).map((v) => ({
+      title: v.title,
+      views: v.views,
+      likes: v.likes,
+      thumbnail: v.thumbnail || null,
+      publishedAt: v.publishedAt,
+    }))
+
+    const systemPrompt = `You are a content strategist who reverse-engineers creators' unique voices. Given a channel's recent video titles, view counts, and channel description, you produce a Creator Style Profile — a structured description of how this creator writes and packages content. The profile is used downstream to generate new scripts that sound like the creator actually wrote them.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "summary": "<2-3 sentence plain-English description of this creator's voice and packaging style>",
+  "languageMix": { "english": <0-1>, "hindi": <0-1>, "other": <0-1> },
+  "avgTitleLengthChars": <number>,
+  "titleStyle": "<one of: curiosity-question | bold-claim | listicle | story-teaser | how-to | controversy | numeric-claim>",
+  "energyLevel": <0-1>,
+  "humorLevel": <0-1>,
+  "vocabulary": {
+    "formality": <0-1, 0=casual 1=formal>,
+    "technicality": <0-1>,
+    "signatureWords": [<5-10 words/phrases this creator repeats>]
+  },
+  "hookStyle": "<one of: curiosity-question | bold-claim | story-cold-open | stat-shock | pattern-interrupt | contrarian-take>",
+  "ctaStyle": "<one of: soft-invite | direct-ask | community-build | reward-promise | curiosity-loop>",
+  "retentionTechniques": [<3-6 techniques this creator likely uses>],
+  "thumbnailStyle": {
+    "density": "<sparse | medium | dense>",
+    "primaryColor": "<hex or named color guess>",
+    "textStyle": "<minimal | bold-overlay | heavy-text>",
+    "faceStyle": "<none | expressive-closeup | small-inset>"
+  },
+  "writingTone": "<one of: authoritative | conversational | hype | educational | inspirational | analytical>",
+  "estimatedAudience": "<1-line description>"
+}
+
+Rules:
+- Every 0-1 score must be a number, not a string.
+- "signatureWords" must come from the actual titles where possible; fall back to description only if titles are absent.
+- Do not invent facts. If titles are absent or sparse, mark the corresponding field null or "unknown" rather than guessing.
+- The thumbnailStyle field is a best-effort guess from titles — it's refined separately by analyzing actual thumbnail images later.`
+
+    const userPrompt = `CHANNEL
+  Title: ${channel.title || '(unknown)'}
+  Handle: ${channel.handle || '(none)'}
+  Description: ${(channel.description || '(none provided)').substring(0, 800)}
+  Subscribers: ${channel.subscribers || 0}
+  Total videos: ${channel.totalVideos || 0}
+
+RECENT VIDEOS (top ${topVideos.length})
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`).join('\n')
+      : '  (no video data available)'}
+
+Build the Creator Style Profile now.`
+
+    return this._execute(
+      'analyzeCreatorStyle',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.5 },
+    )
+  }
+
+  // Generates a complete script for a recommended concept, but shaped to
+  // imitate the creator's voice per the provided style profile. The output
+  // schema is the Script Workspace editor shape (title/hook/fullScript/cta/
+  // description/hashtags) plus a styleMatch score object — not the legacy
+  // timeline-based production-script shape.
+  //
+  // The `mode` parameter controls creative latitude:
+  //   - 'similar'   → stay close to the creator's established patterns
+  //   - 'creative'  → mild creative deviation
+  //   - 'new'       → fully fresh take, still in the creator's voice
+  async generateStyledScript(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+    const recommendation = ctx.recommendation || {}
+    const creatorStyle = ctx.creatorStyle || {}
+    const mode = ['similar', 'creative', 'new'].includes(ctx.mode) ? ctx.mode : 'similar'
+
+    const topVideos = videos.slice(0, 8).map((v) => ({
+      title: v.title,
+      views: v.views,
+    }))
+
+    const systemPrompt = `You are a ghostwriter who writes video scripts that sound like the creator actually wrote them. You are given:
+1. A Creator Style Profile (the target voice)
+2. A channel's metadata and recent video titles
+3. One specific recommended concept to write a script for
+
+Your job: produce a complete, production-ready script in the creator's voice — not generic AI prose.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "title": "<final CTR-optimized title under 70 chars, in the creator's title style>",
+  "hook": "<0-10 second hook — first words spoken, written in the creator's hook style>",
+  "fullScript": "<the complete spoken script as one continuous string. Use \\n\\n for paragraph breaks. Write as actual spoken sentences, not bullets. Minimum 400 words. Imitate the creator's sentence rhythm, vocabulary, and tone.>",
+  "cta": "<end-of-video call to action, in the creator's CTA style>",
+  "description": "<YouTube description in the creator's voice, 100-300 words, with a 1-line hook then 2-3 sentences of context>",
+  "hashtags": [<8-15 relevant hashtags as strings, no # prefix>],
+  "styleMatch": {
+    "overall": <number 0-100>,
+    "language": <number 0-100>,
+    "hook": <number 0-100>,
+    "flow": <number 0-100>,
+    "rhythm": <number 0-100>,
+    "vocabulary": <number 0-100>,
+    "retention": <number 0-100>
+  }
+}
+
+Rules:
+- styleMatch scores MUST be numbers 0-100. Score honestly: if the script genuinely imitates the creator, scores should be 80+; if some dimension is off, score it lower.
+- The hook MUST deploy one of the techniques in creatorStyle.retentionTechniques.
+- Use creatorStyle.vocabulary.signatureWords naturally throughout the script where they fit — do not force them.
+- Match creatorStyle.languageMix: if hindi > 0.2, sprinkle natural Hinglish where the creator would.
+- ${mode === 'similar' ? 'STAY CLOSE to the creator\'s established patterns — minimal creative deviation.' : mode === 'creative' ? 'MILD creative deviation — try a fresh angle, but keep the voice intact.' : 'FULLY fresh take — surprise the audience, but the voice must still feel like the creator.'}
+- All content specific to the recommended concept. No placeholders, no filler.`
+
+    const userPrompt = `CREATOR STYLE PROFILE
+${JSON.stringify(creatorStyle, null, 2)}
+
+CHANNEL
+  Title: ${channel.title || '(unknown)'}
+  Description: ${(channel.description || '(none provided)').substring(0, 400)}
+
+RECENT VIDEOS (for reference, top ${topVideos.length})
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views`).join('\n')
+      : '  (none)'}
+
+RECOMMENDED CONCEPT — write the script for this one
+  title: ${recommendation.title || '(none)'}
+  whyRecommended: ${recommendation.whyRecommend || '(none)'}
+  predictedViews: ${recommendation.predictedViews || 'n/a'}
+  opportunityScore: ${recommendation.opportunity ?? 'n/a'} / 100
+
+MODE: ${mode}
+
+Write the script now — imitate the creator's voice, don't write generic AI prose.`
+
+    const cacheParams = {
+      channelId,
+      ideaId: recommendation.id,
+      ideaTitle: recommendation.title,
+      mode,
+    }
+    if (ctx.regenerate) {
+      cacheParams.regenAt = ctx.regenAt || Date.now()
+    }
+
+    return this._execute(
+      'generateStyledScript',
+      cacheParams,
+      systemPrompt,
+      userPrompt,
+      { temperature: mode === 'new' ? 0.95 : mode === 'creative' ? 0.9 : 0.8 },
+    )
+  }
+
+  // Applies a transformation to an existing script. Used by the editor
+  // toolbar buttons: Rewrite / Shorter / Longer / More Viral / More
+  // Emotional / More Educational / More Storytelling. Returns the same
+  // script shape with the affected fields rewritten.
+  async rewriteScript(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const script = ctx.script || {}
+    const action = ctx.action || 'rewrite'
+    const creatorStyle = ctx.creatorStyle || {}
+
+    const actionPrompts = {
+      'rewrite':       'Rewrite the script to be cleaner and tighter without changing length or meaning.',
+      'shorter':       'Cut the script to roughly 60% of its current length. Keep every key idea. Tighten phrasing.',
+      'longer':        'Expand the script to roughly 150% of its current length. Add depth, examples, and elaboration — never filler.',
+      'viral':         'Rewrite for maximum virality: stronger hook, more pattern interrupts, higher curiosity density, more shocking framing.',
+      'emotional':     'Rewrite to heighten emotion: more vulnerability, sensory language, story beats, audience empathy.',
+      'educational':   'Rewrite to be more educational: clearer explanations, more concrete examples, better scaffolding, explicit takeaways.',
+      'storytelling':  'Rewrite as a narrative: stronger story arc, characters, tension and release, sensory scenes.',
+    }
+    const actionInstruction = actionPrompts[action] || actionPrompts.rewrite
+
+    const systemPrompt = `You are a script editor. You receive an existing script and a transformation instruction, and you return the rewritten script. You preserve the creator's voice and the script's structure (title/hook/fullScript/cta/description/hashtags).
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "title": "<rewritten title>",
+  "hook": "<rewritten hook>",
+  "fullScript": "<rewritten full script>",
+  "cta": "<rewritten CTA>",
+  "description": "<rewritten description>",
+  "hashtags": [<rewritten hashtags>]
+}
+
+Rules:
+- Preserve the creator's voice as captured in the provided Creator Style Profile.
+- Only the fields affected by the transformation should change materially; others may stay the same.
+- Never invent new topics — stay within the original concept.
+- fullScript must be a non-empty string with \\n\\n paragraph breaks.`
+
+    const userPrompt = `ACTION: ${action}
+INSTRUCTION: ${actionInstruction}
+
+CREATOR STYLE PROFILE (preserve this voice)
+${JSON.stringify(creatorStyle, null, 2)}
+
+CURRENT SCRIPT
+  title: ${script.title || ''}
+  hook: ${script.hook || ''}
+  fullScript: ${script.fullScript || ''}
+  cta: ${script.cta || ''}
+  description: ${script.description || ''}
+  hashtags: ${JSON.stringify(script.hashtags || [])}
+
+Apply the transformation now.`
+
+    return this._execute(
+      'rewriteScript',
+      { channelId, action, scriptHash: `${(script.fullScript || '').length}:${(script.fullScript || '').slice(0, 200).replace(/\s+/g, '')}` },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.75 },
+    )
+  }
+
+  // Scores how closely a given script matches the creator's style profile.
+  // Used by the editor to show a live Style Match panel and by generateStyledScript
+  // to validate its own output.
+  async scoreScriptStyle(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const script = ctx.script || {}
+    const creatorStyle = ctx.creatorStyle || {}
+
+    const systemPrompt = `You are a strict editor scoring how well a script imitates a specific creator's voice. Be honest — do not default to high scores.
+
+Return ONLY valid JSON. Shape:
+{
+  "styleMatch": {
+    "overall": <number 0-100>,
+    "language": <number 0-100, how well the language mix matches>,
+    "hook": <number 0-100, hook technique alignment>,
+    "flow": <number 0-100, conversation flow>,
+    "rhythm": <number 0-100, sentence length and pacing>,
+    "vocabulary": <number 0-100, signature word usage and formality>,
+    "retention": <number 0-100, retention technique usage>
+  }
+}
+
+Score each dimension independently. overall should be a weighted average leaning on the dimensions most relevant to the creator's voice (hook, rhythm, vocabulary).`
+
+    const userPrompt = `CREATOR STYLE PROFILE
+${JSON.stringify(creatorStyle, null, 2)}
+
+SCRIPT TO SCORE
+  title: ${script.title || ''}
+  hook: ${script.hook || ''}
+  fullScript: ${(script.fullScript || '').substring(0, 3000)}
+  cta: ${script.cta || ''}
+
+Score it honestly now.`
+
+    return this._execute(
+      'scoreScriptStyle',
+      { channelId, scriptHash: `${(script.fullScript || '').length}:${(script.fullScript || '').slice(0, 200).replace(/\s+/g, '')}` },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.3 },
+    )
+  }
+
+  // ── Research Workspace (Phase 2) ───────────────────────────────────────
+  // Step 1 of 2: extract every factual claim, statistic, and date from the
+  // script. Returns an array of claim objects — no verdicts yet (verdicts
+  // require the search-results pass). Cache key is keyed on a hash of the
+  // script content so identical scripts short-circuit.
+  async extractScriptClaims(ctx = {}, _opts = {}) {
+    const script = ctx.script || {}
+    const scriptBody = script.fullScript || ''
+
+    const systemPrompt = `You are a meticulous fact-checker. Read the script and extract every factual claim that could be verified or falsified against external sources.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "claims": [
+    {
+      "id": "<short stable id like 'claim-1'>",
+      "text": "<the exact claim as a single sentence>",
+      "type": "<statistic | fact | date | claim>",
+      "snippet": "<the verbatim 3-12 word phrase from the script where the claim appears>",
+      "field": "<title | hook | fullScript | cta | description>"
+    }
+  ]
+}
+
+Rules:
+- "statistic" = a numeric figure or percentage (e.g. "73% of users").
+- "date"     = a specific date, year, or time reference (e.g. "in 2024").
+- "fact"     = a checkable assertion about the world (e.g. "OpenAI is based in SF").
+- "claim"    = a subjective or hard-to-verify assertion.
+- Include every distinct factual statement. Don't merge multiple stats into one claim.
+- "snippet" MUST be a literal substring of the script (used downstream for the Apply patch).
+- Skip pure opinions, calls to action, and creative phrasing without factual content.
+- If the script has no factual claims, return { "claims": [] }.`
+
+    const userPrompt = `SCRIPT
+  title:       ${script.title || ''}
+  hook:        ${script.hook || ''}
+  fullScript:  ${scriptBody}
+  cta:         ${script.cta || ''}
+  description: ${script.description || ''}
+
+Extract the claims now.`
+
+    const scriptHashInput = `${script.title || ''}::${(scriptBody).slice(0, 1200)}::${(scriptBody).length}`
+
+    const result = await this._execute(
+      'extractScriptClaims',
+      { scriptHash: scriptHashInput },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.2 },
+    )
+
+    // Normalize: _execute returns the { claims: [...] } object; pass the array
+    // through so downstream code can iterate directly.
+    return Array.isArray(result?.claims) ? result.claims : []
+  }
+
+  // Step 2 of 2: combine the claims with (possibly empty) search results to
+  // produce verdicts, structured suggestions, missing-context, and a
+  // researchScore. When searchResults is empty (stub mode), the AI is told to
+  // mark verdicts 'unverified' with low confidence — not to invent sources.
+  async analyzeScriptResearch(ctx = {}, _opts = {}) {
+    const script = ctx.script || {}
+    const claims = Array.isArray(ctx.claims) ? ctx.claims : []
+    // searchResults: Map<claimText, [{url, title, snippet, publishedDate}]>
+    // Convert to a plain object for the prompt.
+    const searchResultsMap = ctx.searchResults instanceof Map
+      ? ctx.searchResults
+      : new Map(Object.entries(ctx.searchResults || {}))
+
+    const grounded = ctx.grounded !== false // default true; engine sets false in stub mode
+    const groundingInstruction = grounded
+      ? `GROUNDING: Live web search results are provided for each claim below. Use them to mark verdicts:
+   - "verified"         = the source clearly supports the claim
+   - "needs-citation"   = claim is plausible but the source is indirect or weak
+   - "weak"             = sources partially contradict or only tangentially relate
+   - "false"            = sources clearly contradict the claim
+   - "unverified"       = no relevant source found`
+      : `GROUNDING: Live web search is NOT configured (stub mode). Mark every verdict as "unverified" with confidence < 25. Do NOT invent sources, URLs, or dates — every entry in claim.sources MUST be empty when no search results are provided for that claim.`
+
+    const systemPrompt = `You are a research editor fact-checking a video script. You receive:
+1. The full script
+2. A list of pre-extracted claims
+3. Web search results per claim (may be empty — stub mode)
+
+You produce the final Research Report.
+
+${groundingInstruction}
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "claims": [
+    {
+      "id": "<same id as the input claim>",
+      "text": "<claim text>",
+      "type": "<statistic | fact | date | claim>",
+      "verdict": "<verified | needs-citation | weak | false | unverified>",
+      "confidence": <0-100>,
+      "snippet": "<verbatim phrase from script>",
+      "field": "<title | hook | fullScript | cta | description>",
+      "sources": [{ "url": "", "title": "", "domain": "", "publishedDate": "" }]
+    }
+  ],
+  "suggestions": [
+    {
+      "id": "<stable id like 'rec-sha1-of-find'>",
+      "type": "<fix-statistic | fix-date | replace-claim | add-context | remove-hallucination>",
+      "field": "<title | hook | fullScript | cta | description>",
+      "find": "<EXACT verbatim substring currently in the script — must match character-for-character>",
+      "replace": "<the corrected or replacement text>",
+      "rationale": "<one sentence: why this change, citing the source if grounded>",
+      "confidence": <0-100>,
+      "sources": [{ "url": "", "title": "", "domain": "" }]
+    }
+  ],
+  "missingContext": [
+    {
+      "topic": "<what's missing>",
+      "why": "<why it matters for credibility>",
+      "suggestedAddition": "<one-line addition the user could write>",
+      "priority": "<high | medium | low>"
+    }
+  ],
+  "researchScore": {
+    "overall":             <0-100, weighted blend>,
+    "accuracy":            <0-100, % verified vs total claims>,
+    "freshness":           <0-100, average source age score>,
+    "credibility":         <0-100, source domain quality>,
+    "citationCoverage":    <0-100, % claims with at least one source>
+  }
+}
+
+Rules:
+- "find" MUST be a literal substring of the script — it will be used as a string-replace target.
+- "replace" should be the corrected text. Empty string is allowed for "remove-hallucination".
+- Do not invent sources. If grounded=false, every claim's sources array MUST be empty.
+- "confidence" reflects how certain you are — under stub mode, keep it < 25.
+- Score honestly: in stub mode, accuracy and citationCoverage should be low (typically 0-30) since nothing is verified.
+- Keep suggestion count reasonable — 3 to 8 actionable items, not 30 nitpicks.`
+
+    const claimsForPrompt = claims.map((c) => {
+      const results = searchResultsMap.get(c.text) || searchResultsMap.get(c.id) || []
+      return `CLAIM ${c.id} (${c.type}, field=${c.field})
+  text: ${c.text}
+  snippet: "${c.snippet || ''}"
+  search results (${results.length}):${
+        results.length
+          ? '\n' + results.map((r) => `    - ${r.title || '(no title)'} — ${r.url}\n      snippet: ${(r.snippet || '').slice(0, 280)}${r.publishedDate ? `\n      published: ${r.publishedDate}` : ''}`).join('\n')
+          : '\n    (none)'
+      }`
+    }).join('\n\n')
+
+    const userPrompt = `SCRIPT
+  title:       ${script.title || ''}
+  hook:        ${script.hook || ''}
+  fullScript:  ${(script.fullScript || '').slice(0, 4000)}
+  cta:         ${script.cta || ''}
+  description: ${(script.description || '').slice(0, 600)}
+
+CLAIMS TO VERIFY
+${claimsForPrompt || '(no claims extracted — script may have no factual content)'}
+
+MODE: ${grounded ? 'grounded (live web search)' : 'non-grounded (stub — no live web search)'}
+
+Produce the Research Report now.`
+
+    const scriptHashInput = `${script.title || ''}::${(script.fullScript || '').length}::${claims.length}::${grounded ? 'g' : 's'}`
+
+    return this._execute(
+      'analyzeScriptResearch',
+      { scriptHash: scriptHashInput, channelId: ctx.channelId || '' },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.3 },
     )
   }
 }

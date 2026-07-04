@@ -5,6 +5,9 @@ export const MODEL_PRICING = {
     'gpt-4-turbo':  { input: 10.00, output: 30.00 },
     'gpt-3.5-turbo':{ input: 0.50,  output: 1.50 }
   },
+  deepseek: {
+    'DeepSeek-V4-Pro': { input: 0.27, output: 1.10 }
+  },
   gemini: {
     'gemini-2.0-flash':     { input: 0.10,  output: 0.40 },
     'gemini-2.0-flash-lite':{ input: 0.075, output: 0.30 },

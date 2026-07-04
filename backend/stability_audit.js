@@ -240,9 +240,9 @@ async function runAudit() {
       })
 
       const providerMode = process.env.AI_PROVIDER || 'stub'
-      const hasApiKey = !!process.env.OPENAI_API_KEY
+      const hasApiKey = !!process.env.DEEPSEEK_API_KEY
       console.log(`Current AI Provider Config: ${providerMode}`)
-      console.log(`OpenAI API Key present: ${hasApiKey}`)
+      console.log(`DeepSeek API Key present: ${hasApiKey}`)
 
       // Verify token usage logging on a mocked or stub invocation
       const usageCountBefore = await AIUsageLog.countDocuments({})

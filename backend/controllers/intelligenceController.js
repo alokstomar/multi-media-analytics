@@ -158,8 +158,8 @@ export async function analyzeThumbnail(req, res, next) {
 
     // 3. Log AI provider and model configuration
     console.log('[AI Thumbnail Vision Analyzer] Config details:', {
-      provider: process.env.AI_PROVIDER || 'openai',
-      visionModel: process.env.OPENAI_PREMIUM_MODEL || 'gpt-5.4',
+      provider: process.env.AI_PROVIDER || 'deepseek',
+      visionModel: process.env.DEEPSEEK_MODEL || 'DeepSeek-V4-Pro',
       userId: req.user?._id?.toString() || null
     })
 
@@ -186,8 +186,8 @@ export async function analyzeScript(req, res, next) {
   try {
     const providerName = getActiveProviderName()
     let activeModel = 'unknown'
-    if (providerName === 'openai') {
-      activeModel = process.env.OPENAI_FAST_MODEL || 'gpt-5-mini'
+    if (providerName === 'deepseek') {
+      activeModel = process.env.DEEPSEEK_MODEL || 'DeepSeek-V4-Pro'
     } else if (providerName === 'gemini') {
       activeModel = process.env.GEMINI_FAST_MODEL || 'gemini-2.0-flash'
     } else if (providerName === 'groq') {

@@ -241,13 +241,28 @@ export default function InstagramDashboardOverview() {
           </div>
         ) : !hasOverview ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-sm space-y-2 max-w-xl mx-auto">
-            <p className="text-lg font-medium text-gray-700">No Instagram analytics available</p>
+            <p className="text-lg font-medium text-gray-700">
+              {error
+                ? 'Failed to load analytics'
+                : selectedAccount?.syncStatus === 'syncing'
+                ? 'Analytics are still syncing'
+                : selectedAccount?.syncStatus === 'error'
+                ? 'Sync failed'
+                : 'No Instagram analytics available'}
+            </p>
             {error ? (
               <p className="text-sm text-red-600">{error}</p>
+            ) : selectedAccount?.syncStatus === 'syncing' ? (
+              <p className="text-sm text-gray-500">
+                Analytics are still syncing. Initial Instagram data is being fetched from RapidAPI.
+              </p>
+            ) : selectedAccount?.syncStatus === 'error' ? (
+              <p className="text-sm text-gray-500">
+                Unable to synchronize this Instagram account. Please try syncing again.
+              </p>
             ) : (
               <p className="text-sm text-gray-500">
-                This account has no Meta OAuth token. Disconnect it and reconnect via the Connect
-                button — Instagram analytics require an OAuth-bound Business or Creator account.
+                No analytics available yet. The initial synchronization has not completed.
               </p>
             )}
           </div>

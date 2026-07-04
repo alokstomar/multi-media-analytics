@@ -929,8 +929,8 @@ export async function getAIUsageStats(req, res, next) {
     const cacheCount = await AIResponseCache.countDocuments({ userId: req.user._id })
 
     // Budget configuration
-    const dailyBudget = parseFloat(process.env.OPENAI_DAILY_BUDGET_USD) || 0
-    const monthlyBudget = parseFloat(process.env.OPENAI_MONTHLY_BUDGET_USD) || 0
+    const dailyBudget = parseFloat(process.env.DEEPSEEK_DAILY_BUDGET_USD) || 0
+    const monthlyBudget = parseFloat(process.env.DEEPSEEK_MONTHLY_BUDGET_USD) || 0
 
     const daily = dailyAgg[0] || { totalCost: 0, totalTokens: 0, totalCalls: 0, cacheHits: 0, failures: 0 }
     const weekly = weeklyAgg[0] || { totalCost: 0, totalTokens: 0, totalCalls: 0, cacheHits: 0 }
@@ -940,8 +940,8 @@ export async function getAIUsageStats(req, res, next) {
       success: true,
       data: {
         provider: process.env.AI_PROVIDER || 'stub',
-        fastModel: process.env.OPENAI_FAST_MODEL || 'gpt-4o-mini',
-        premiumModel: process.env.OPENAI_PREMIUM_MODEL || 'gpt-4o',
+        fastModel: process.env.DEEPSEEK_MODEL || 'DeepSeek-V4-Pro',
+        premiumModel: process.env.DEEPSEEK_MODEL || 'DeepSeek-V4-Pro',
         budget: {
           daily: { limit: dailyBudget, spent: daily.totalCost, remaining: Math.max(0, dailyBudget - daily.totalCost) },
           monthly: { limit: monthlyBudget, spent: monthly.totalCost, remaining: Math.max(0, monthlyBudget - monthly.totalCost) }
