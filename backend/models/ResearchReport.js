@@ -122,7 +122,9 @@ researchReportSchema.statics.markSuggestionState = async function (
   const doc = await this.findOne({ workspaceId, channelId, ideaId })
   if (!doc) return null
 
-  const suggestion = doc.report.suggestions.id(suggestionId)
+  // suggestionSchema uses { _id: false }, so Mongoose's .id() (which searches
+  // by _id) cannot find subdocuments. Look up by the business `id` field.
+  const suggestion = doc.report.suggestions.find((s) => s.id === suggestionId)
   if (!suggestion) return null
 
   suggestion.state = state

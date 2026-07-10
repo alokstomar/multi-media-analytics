@@ -178,12 +178,15 @@ export async function applySuggestion(req, res, next) {
     const newVersionNumber = updated.versions[updated.versions.length - 1].version
 
     // 3. Mark the suggestion applied (atomic patch).
-    await ResearchReport.markSuggestionState(
+    const marked = await ResearchReport.markSuggestionState(
       { workspaceId: req.workspaceId, channelId, ideaId },
       suggestionId,
       'applied',
       newVersionNumber,
     )
+    if (!marked) {
+      throw new AppError('Suggestion not found — it may have been removed when the report was regenerated', 404)
+    }
 
     // 4. Re-score the report (cheap) against the new working state.
     let refreshedReport
