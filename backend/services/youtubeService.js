@@ -153,6 +153,51 @@ export async function fetchChannelVideos(channelId, maxResults = 20) {
   }))
 }
 
+// ── Fetch video descriptions for Creator DNA analysis ─────────────────
+// Pulls the full snippet.description for up to 50 video IDs per batch.
+// Returns [{ videoId, description }] — an empty array on any failure so
+// the caller degrades gracefully to titles-only analysis.
+//
+// Priority order for Creator DNA context assembly:
+//   1. Video transcripts (future — picked up automatically when Video.transcript exists)
+//   2. Video descriptions  ← this function provides this tier
+//   3. Video titles
+//   4. Channel description
+export async function fetchVideoDescriptions(videoIds = []) {
+  if (!videoIds.length) return []
+  const api = yt()
+  const results = []
+
+  try {
+    // YouTube allows up to 50 IDs per videos.list call
+    const batches = []
+    for (let i = 0; i < videoIds.length; i += 50) {
+      batches.push(videoIds.slice(i, i + 50))
+    }
+
+    for (const batch of batches) {
+      const { data } = await api.get('/videos', {
+        params: {
+          part: 'snippet',
+          id: batch.join(','),
+          fields: 'items(id,snippet(description))',
+        },
+      })
+      for (const item of (data.items || [])) {
+        const desc = (item.snippet?.description || '').trim()
+        if (desc) {
+          results.push({ videoId: item.id, description: desc })
+        }
+      }
+    }
+  } catch (err) {
+    // Non-fatal — the DNA engine falls back to titles-only analysis
+    console.warn('[YT] fetchVideoDescriptions failed (non-fatal):', err.message)
+  }
+
+  return results
+}
+
 /**
  * Fetch comment threads for a single video with optional nextPageToken pagination.
  * maxPages controls how many API pages to traverse (each page = up to 100 comments).

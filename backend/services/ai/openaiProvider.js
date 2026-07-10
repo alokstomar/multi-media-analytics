@@ -1964,92 +1964,243 @@ Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, vi
     )
   }
 
-  // ── Script Workspace 2.0 ────────────────────────────────────────────
-  // Analyzes a creator's historical videos + channel description and builds
-  // a Creator Style Profile. The profile is the input to generateStyledScript
-  // and scoreScriptStyle — it's what makes the output sound like the creator
-  // rather than generic AI prose.
+  // ── Script Workspace — Creator DNA Engine ───────────────────────────────
+  // Analyzes a creator's content corpus and builds a deep CreatorStyleProfile
+  // that captures not just labels ("authoritative tone") but actual behavioral
+  // DNA: how the creator constructs sentences, deploys authority, uses humor,
+  // tells stories, transitions between ideas, and closes videos.
   //
-  // v1 limitation: Video model has no transcript field, so this works from
-  // titles + channel description + thumbnail URLs only. Hook style, rhythm,
-  // and vocabulary scores are inferred from title patterns and description
-  // tone. Once transcripts are added to Video, this method should be updated
-  // to use them — quality will jump substantially.
+  // Data source priority (graceful degradation):
+  //   1. Video transcripts (when Video.transcript is populated in the future)
+  //   2. Video descriptions  (fetched live via fetchVideoDescriptions)
+  //   3. Video titles
+  //   4. Channel description
+  //
+  // The resulting profile is consumed by generateStyledScript and
+  // scoreScriptStyle — it's what makes the output sound like the creator
+  // rather than generic AI prose.
   async analyzeCreatorStyle(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || ''
     const channel = ctx.channel || {}
     const videos = Array.isArray(ctx.videos) ? ctx.videos : []
 
-    const topVideos = videos.slice(0, 15).map((v) => ({
-      title: v.title,
-      views: v.views,
-      likes: v.likes,
-      thumbnail: v.thumbnail || null,
-      publishedAt: v.publishedAt,
-    }))
+    const topVideos = videos.slice(0, 15)
 
-    const systemPrompt = `You are a content strategist who reverse-engineers creators' unique voices. Given a channel's recent video titles, view counts, and channel description, you produce a Creator Style Profile — a structured description of how this creator writes and packages content. The profile is used downstream to generate new scripts that sound like the creator actually wrote them.
+    // ── Build content corpus (priority-ordered) ───────────────────────────
+    // Tier 1: transcripts (future-compatible — picked up automatically when present)
+    const transcriptLines = []
+    for (const v of topVideos) {
+      if (v.transcript && typeof v.transcript === 'string' && v.transcript.trim()) {
+        transcriptLines.push(`[TRANSCRIPT] "${v.title}":\n${v.transcript.trim().substring(0, 800)}`)
+      }
+    }
+
+    // Tier 2: video descriptions (fetched live from YouTube API)
+    let descriptionLines = []
+    try {
+      const videoIds = topVideos.map((v) => v.videoId).filter(Boolean)
+      if (videoIds.length) {
+        const { fetchVideoDescriptions } = await import('../../services/youtubeService.js')
+        const descData = await fetchVideoDescriptions(videoIds)
+        const descMap = new Map(descData.map((d) => [d.videoId, d.description]))
+        for (const v of topVideos) {
+          const desc = descMap.get(v.videoId)
+          if (desc && desc.length > 80) {
+            // Strip pure SEO/link sections — keep the first 400 chars (usually the actual description copy)
+            const cleanDesc = desc.split(/\n{2,}/)[0].trim().substring(0, 400)
+            if (cleanDesc.length > 60) {
+              descriptionLines.push(`[DESC] "${v.title}":\n${cleanDesc}`)
+            }
+          }
+        }
+      }
+    } catch (descErr) {
+      // Non-fatal — fall through to titles-only
+      console.warn('[CreatorDNA] Description fetch skipped:', descErr.message)
+    }
+
+    // Tier 3: titles
+    const titleLines = topVideos.map((v, i) =>
+      `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`
+    )
+
+    // Determine data source label for styleConfidence
+    const hasTranscripts = transcriptLines.length > 0
+    const hasDescriptions = descriptionLines.length > 0
+    const dataSourceLabel = hasTranscripts
+      ? 'transcripts'
+      : hasDescriptions
+        ? 'descriptions'
+        : titleLines.length
+          ? 'titles'
+          : 'channel-description'
+
+    // Assemble corpus string — richest sources at top
+    const corpusSections = []
+    if (transcriptLines.length) {
+      corpusSections.push(`=== TRANSCRIPTS (highest priority — actual spoken language) ===\n${transcriptLines.join('\n\n')}`)
+    }
+    if (descriptionLines.length) {
+      corpusSections.push(`=== VIDEO DESCRIPTIONS (written copy — secondary source) ===\n${descriptionLines.join('\n\n')}`)
+    }
+    if (titleLines.length) {
+      corpusSections.push(`=== VIDEO TITLES (packaging signals) ===\n${titleLines.join('\n')}`)
+    }
+    const contentCorpus = corpusSections.join('\n\n') || '(no content data available)'
+
+    const systemPrompt = `You are a Creator DNA Analyst. Your job is to reverse-engineer how a specific content creator thinks, speaks, teaches, persuades, and structures content — based on their actual content corpus.
+
+The profile you build is used downstream to generate entirely new scripts that feel like the creator actually wrote and spoke them. The richer and more accurate this profile, the better the generated scripts will sound.
+
+DATA SOURCE PRIORITY (highest to lowest):
+1. Transcripts — actual spoken words (most valuable: captures rhythm, vocabulary, phrasing, humor)
+2. Video descriptions — written copy (captures vocabulary, structure, authority style)
+3. Video titles — packaging signals (captures hook style, audience framing, topic patterns)
+4. Channel description — brand positioning (supplementary only)
+
+CONFIDENCE CALIBRATION:
+- transcripts available → overall confidence ≥ 0.80
+- descriptions available (no transcripts) → overall confidence 0.55–0.75
+- titles only → overall confidence 0.30–0.50
+- ≥ 10 videos analyzed → add +0.10 to overall
+- high consistency across videos → add +0.05 to overall
+- Cap at 1.0
 
 Return ONLY valid JSON (no markdown fences). Shape:
 {
-  "summary": "<2-3 sentence plain-English description of this creator's voice and packaging style>",
+  "summary": "<2-3 sentence plain-English description of this creator's voice, teaching style, and content identity>",
+
+  "creatorPersona": "<one of: teacher | advisor | storyteller | consultant | journalist | entertainer | analyst | coach>",
+  "brandVoice": "<one of: premium | educational | authoritative | friendly | humorous | corporate | luxury | minimal>",
+  "audienceProfile": {
+    "primarySegment": "<one of: beginners | professionals | founders | investors | students | taxpayers | creators | general>",
+    "sophisticationLevel": "<one of: beginner | intermediate | advanced>",
+    "description": "<1-line audience description>"
+  },
+  "psychologicalTriggers": ["<3-5 from: curiosity | fear | urgency | authority | loss-aversion | aspiration | social-proof | FOMO>"],
+  "openingFormula": "<one of: shocking-statistic | personal-story | bold-statement | question | myth-busting | breaking-news | emotional-hook | contrarian-take>",
+  "storyStructure": ["<ordered list of sections the creator consistently uses, e.g. Hook, Problem, Explanation, Example, Proof, Solution, CTA>"],
+  "humorLevel": "<one of: very-serious | light-humor | heavy-humor | sarcastic>",
+  "emotionalLevel": "<one of: very-emotional | balanced | mostly-logical | highly-analytical>",
+
   "languageMix": { "english": <0-1>, "hindi": <0-1>, "other": <0-1> },
   "avgTitleLengthChars": <number>,
   "titleStyle": "<one of: curiosity-question | bold-claim | listicle | story-teaser | how-to | controversy | numeric-claim>",
   "energyLevel": <0-1>,
-  "humorLevel": <0-1>,
-  "vocabulary": {
-    "formality": <0-1, 0=casual 1=formal>,
-    "technicality": <0-1>,
-    "signatureWords": [<5-10 words/phrases this creator repeats>]
-  },
+  "humorLevel_score": <0-1>,
   "hookStyle": "<one of: curiosity-question | bold-claim | story-cold-open | stat-shock | pattern-interrupt | contrarian-take>",
   "ctaStyle": "<one of: soft-invite | direct-ask | community-build | reward-promise | curiosity-loop>",
-  "retentionTechniques": [<3-6 techniques this creator likely uses>],
+  "ctaFormula": ["<2-4 actual CTA phrases or patterns the creator likely uses, e.g. 'Save this video', 'Share this with every taxpayer'>"],
+  "retentionTechniques": ["<3-6 techniques this creator uses>"],
+  "writingTone": "<one of: authoritative | conversational | hype | educational | inspirational | analytical>",
+  "estimatedAudience": "<1-line description>",
+
+  "authorityStyle": ["<2-4 from: government-refs | laws-sections | reports | statistics | research | personal-experience | case-studies | news | expert-quotes>"],
+  "evidenceStyle": ["<2-4 from: numbers | legal-sections | examples | stories | analogies | charts | news | real-cases>"],
+
+  "vocabulary": {
+    "formality": <0-1, 0=very casual 1=very formal>,
+    "technicality": <0-1>,
+    "signatureWords": ["<5-12 words or short phrases this creator uses repeatedly>"],
+    "recurringPhrases": ["<3-6 multi-word phrases they repeat across videos>"],
+    "favoriteTransitions": ["<3-5 transition phrases they use, e.g. 'Now here is the thing', 'Let me give you an example'>"],
+    "fillerWords": ["<2-4 filler expressions if apparent>"],
+    "emphasisWords": ["<3-5 words they stress or repeat for impact>"]
+  },
+
+  "signaturePatterns": ["<3-6 recurring structural or behavioral quirks, e.g. 'always opens with a statistic', 'always gives 3 examples', 'always ends with one actionable takeaway'>"],
+
   "thumbnailStyle": {
     "density": "<sparse | medium | dense>",
     "primaryColor": "<hex or named color guess>",
     "textStyle": "<minimal | bold-overlay | heavy-text>",
     "faceStyle": "<none | expressive-closeup | small-inset>"
   },
-  "writingTone": "<one of: authoritative | conversational | hype | educational | inspirational | analytical>",
-  "estimatedAudience": "<1-line description>"
+
+  "speechDNA": {
+    "averageSentenceLength": "<short | medium | long>",
+    "sentenceComplexity": <0-1, 0=very simple 1=complex compound>,
+    "shortVsLongSentenceRatio": "<mostly-short | balanced | mostly-long>",
+    "questionDensity": <0-1>,
+    "pauseFrequency": "<low | medium | high>",
+    "punchlineFrequency": "<low | medium | high>",
+    "analogyFrequency": "<low | medium | high>",
+    "statisticFrequency": "<low | medium | high>",
+    "legalReferenceFrequency": "<none | low | medium | high>",
+    "storyFrequency": "<low | medium | high>",
+    "humorFrequency": "<low | medium | high>",
+    "repetitionFrequency": "<low | medium | high>",
+    "englishHindiSwitchFrequency": "<none | low | medium | high>",
+    "emphasisStyle": "<one of: bold-claim | repetition | contrast | rhetorical-question | pause>",
+    "pacingStyle": "<one of: rapid-fire | measured | slow-build | alternating>",
+    "explanationDepth": "<one of: surface | medium | deep-dive>",
+    "curiosityLoops": "<one of: rare | occasional | frequent>",
+    "suspenseUsage": "<one of: none | light | heavy>"
+  },
+
+  "styleExamples": {
+    "hookExamples": ["<2-3 representative hook snippets, 15-35 words each. If synthesized from titles, append (synthesized)>"],
+    "openingExamples": ["<2-3 representative opening lines or patterns>"],
+    "transitionExamples": ["<2-3 transition phrases or sentences the creator uses>"],
+    "storyExamples": ["<1-2 short story setups or narrative patterns, 20-40 words each>"],
+    "analogyExamples": ["<1-2 analogy patterns they use>"],
+    "ctaExamples": ["<2-3 specific CTA formulations, e.g. 'Save this video right now', 'Share this with your CA'>"],
+    "closingExamples": ["<1-2 closing line patterns>"],
+    "authorityExamples": ["<1-2 examples of how they cite authority, e.g. 'Section 80C of Income Tax Act says...'>"],
+    "objectionHandlingExamples": ["<1-2 examples of how they handle viewer doubts or objections>"],
+    "humorExamples": ["<1-2 humor patterns if applicable, null if very-serious>"]
+  },
+
+  "styleConfidence": {
+    "overall": <0-1>,
+    "vocabulary": <0-1>,
+    "rhythm": <0-1>,
+    "persona": <0-1>,
+    "authority": <0-1>,
+    "storytelling": <0-1>,
+    "humor": <0-1>,
+    "CTA": <0-1>,
+    "emotionalTone": <0-1>,
+    "dataSource": "<transcripts | descriptions | titles | channel-description>",
+    "videoCount": <number of videos in corpus>
+  }
 }
 
-Rules:
-- Every 0-1 score must be a number, not a string.
-- "signatureWords" must come from the actual titles where possible; fall back to description only if titles are absent.
-- Do not invent facts. If titles are absent or sparse, mark the corresponding field null or "unknown" rather than guessing.
-- The thumbnailStyle field is a best-effort guess from titles — it's refined separately by analyzing actual thumbnail images later.`
+RULES:
+- Every 0-1 numeric score must be a number, not a string.
+- speechDNA must ALWAYS be present. Infer values statistically from the corpus. If working from titles-only, mark high-uncertainty fields with a "~" prefix in string values (e.g. "~medium") to signal lower confidence.
+- styleExamples: extract SHORT snippets (15-40 words max). If no actual spoken content is available, synthesize plausible examples and append "(synthesized)". These are patterns to IMITATE STRUCTURALLY — not sentences to copy.
+- styleConfidence must be calibrated honestly: titles-only = low, descriptions = medium, transcripts = high. Add bonuses for video count and consistency.
+- All legacy fields (summary, languageMix, vocabulary, hookStyle, ctaStyle, retentionTechniques, thumbnailStyle, writingTone, estimatedAudience) must remain present — new schema is a strict superset.
+- Do not invent facts. Use null only for fields that are genuinely unknowable from the available data.`
 
     const userPrompt = `CHANNEL
   Title: ${channel.title || '(unknown)'}
   Handle: ${channel.handle || '(none)'}
-  Description: ${(channel.description || '(none provided)').substring(0, 800)}
+  Description: ${(channel.description || '(none provided)').substring(0, 600)}
   Subscribers: ${channel.subscribers || 0}
   Total videos: ${channel.totalVideos || 0}
 
-RECENT VIDEOS (top ${topVideos.length})
-${topVideos.length
-      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`).join('\n')
-      : '  (no video data available)'}
+DATA SOURCE: ${dataSourceLabel} (${topVideos.length} videos in corpus)
 
-Build the Creator Style Profile now.`
+CONTENT CORPUS
+${contentCorpus}
+
+Build the complete Creator DNA Profile now. Be analytical, specific, and honest about confidence.`
 
     return this._execute(
       'analyzeCreatorStyle',
-      { channelId },
+      { channelId, dataSource: dataSourceLabel, videoCount: topVideos.length },
       systemPrompt,
       userPrompt,
-      { temperature: 0.5 },
+      { temperature: 0.4 },
     )
   }
 
-  // Generates a complete script for a recommended concept, but shaped to
-  // imitate the creator's voice per the provided style profile. The output
-  // schema is the Script Workspace editor shape (title/hook/fullScript/cta/
-  // description/hashtags) plus a styleMatch score object — not the legacy
-  // timeline-based production-script shape.
+
+  // Generates a complete script for a recommended concept, shaped to reproduce
+  // the creator's actual voice — not generic AI prose. Consumes all layers of
+  // the Creator DNA profile built by analyzeCreatorStyle.
   //
   // The `mode` parameter controls creative latitude:
   //   - 'similar'   → stay close to the creator's established patterns
@@ -2068,21 +2219,88 @@ Build the Creator Style Profile now.`
       views: v.views,
     }))
 
-    const systemPrompt = `You are a ghostwriter who writes video scripts that sound like the creator actually wrote them. You are given:
-1. A Creator Style Profile (the target voice)
-2. A channel's metadata and recent video titles
-3. One specific recommended concept to write a script for
+    // ── Confidence-modulated generation instruction ───────────────────────
+    const confidence = creatorStyle.styleConfidence?.overall ?? 0.5
+    const confidenceInstruction = confidence >= 0.70
+      ? 'The Creator DNA profile is HIGH CONFIDENCE (built from rich content data). Imitate the creator\'s voice AGGRESSIVELY — every stylistic choice should trace back to a learned signal.'
+      : confidence >= 0.40
+        ? 'The Creator DNA profile is MEDIUM CONFIDENCE (built from limited data). Imitate moderately — replicate clear patterns, use conservative estimates where signals were weak.'
+        : 'The Creator DNA profile is LOW CONFIDENCE (built from titles only). Imitate CONSERVATIVELY — apply strong signals only, avoid over-fitting to weak inferences.'
 
-Your job: produce a complete, production-ready script in the creator's voice — not generic AI prose.
+    // ── Mode instruction ──────────────────────────────────────────────────
+    const modeInstruction = mode === 'similar'
+      ? 'STAY CLOSE to the creator\'s established patterns — minimal creative deviation.'
+      : mode === 'creative'
+        ? 'MILD creative deviation — try a fresh angle on the topic, but keep every aspect of the voice intact.'
+        : 'FULLY fresh take — surprise the audience with unexpected framing, but the voice must still feel unmistakably like this creator.'
+
+    // ── Build styleExamples block for the prompt ──────────────────────────
+    const examples = creatorStyle.styleExamples || {}
+    const examplesBlock = Object.entries(examples)
+      .filter(([, v]) => Array.isArray(v) && v.length > 0)
+      .map(([key, snippets]) => `  ${key}:\n${snippets.map((s) => `    - "${s}"`).join('\n')}`)
+      .join('\n')
+
+    // ── speechDNA block for the prompt ────────────────────────────────────
+    const dna = creatorStyle.speechDNA || {}
+    const dnaBlock = Object.entries(dna)
+      .map(([k, v]) => `  ${k}: ${v}`)
+      .join('\n')
+
+    const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a video script that sounds like this specific creator actually wrote and spoke it — not like an AI assistant wrote it about the topic.
+
+You have been given a Creator DNA Profile containing everything learned about how this creator thinks, speaks, teaches, persuades, and structures content.
+
+═══════════════════════════════════════════════════════
+STEP 1 — BUILD YOUR CREATOR VOICE CHECKLIST (internal)
+═══════════════════════════════════════════════════════
+
+Before writing a single word of the script, internally construct a Creator Voice Checklist from the DNA profile. For example:
+
+  ✓ Opens with: [learned openingFormula]
+  ✓ Question frequency: every ~[derived from questionDensity] sentences
+  ✓ Sentence rhythm: [averageSentenceLength] — mix short punchy lines with occasional longer explanations
+  ✓ Authority style: cite [authorityStyle] naturally where relevant
+  ✓ Transition phrases: use [favoriteTransitions]
+  ✓ Signature words: weave in [signatureWords] naturally — never force them
+  ✓ CTA formula: close with [ctaFormula pattern]
+  ✓ Language mix: [languageMix] — Hindi/English switch at [englishHindiSwitchFrequency]
+  ✓ Psychological triggers: activate [psychologicalTriggers] at natural points
+  ✓ Story structure: follow [storyStructure] for body sections
+  ✓ Humor level: [humorLevel] — use or avoid accordingly
+  ✓ Evidence pattern: support claims with [evidenceStyle]
+  ✓ Pacing: [pacingStyle] — match [shortVsLongSentenceRatio]
+  ✓ Analogy frequency: [analogyFrequency]
+  ✓ Curiosity loops: [curiosityLoops] — plant and resolve throughout
+
+Adapt this checklist to whatever signals are in the actual profile provided.
+
+═══════════════════════════════════════════════════════
+STEP 2 — STUDY THE STYLE EXAMPLES
+═══════════════════════════════════════════════════════
+
+Study the styleExamples to understand the creator's rhythm, pacing, vocabulary, sentence construction, and tone.
+
+CRITICAL RULES for examples:
+- DO NOT copy any example verbatim
+- DO NOT paraphrase examples
+- USE them only to understand the STRUCTURAL PATTERN, CADENCE, and VOCABULARY STYLE
+- Generate entirely original sentences that feel like the same creator
+
+═══════════════════════════════════════════════════════
+STEP 3 — WRITE THE SCRIPT
+═══════════════════════════════════════════════════════
+
+Write the script satisfying your Creator Voice Checklist from Step 1.
 
 Return ONLY valid JSON (no markdown fences). Shape:
 {
-  "title": "<final CTR-optimized title under 70 chars, in the creator's title style>",
-  "hook": "<0-10 second hook — first words spoken, written in the creator's hook style>",
-  "fullScript": "<the complete spoken script as one continuous string. Use \\n\\n for paragraph breaks. Write as actual spoken sentences, not bullets. Minimum 400 words. Imitate the creator's sentence rhythm, vocabulary, and tone.>",
-  "cta": "<end-of-video call to action, in the creator's CTA style>",
-  "description": "<YouTube description in the creator's voice, 100-300 words, with a 1-line hook then 2-3 sentences of context>",
-  "hashtags": [<8-15 relevant hashtags as strings, no # prefix>],
+  "title": "<final CTR-optimized title under 70 chars, in the creator's exact title style>",
+  "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max.>",
+  "fullScript": "<the complete spoken script. Use \\n\\n for paragraph breaks. Write as actual spoken sentences, not bullets. Minimum 500 words. Every paragraph must feel like this specific creator. Match sentence rhythm, vocabulary density, authority style, humor level, and pacing.>",
+  "cta": "<end-of-video call to action. Must match the learned ctaFormula — not a generic 'like and subscribe'.>",
+  "description": "<YouTube video description in the creator's voice, 100-300 words. Start with a punchy hook line, then context. Match vocabulary and tone.>",
+  "hashtags": [<8-15 relevant hashtags, no # prefix>],
   "styleMatch": {
     "overall": <number 0-100>,
     "language": <number 0-100>,
@@ -2090,31 +2308,95 @@ Return ONLY valid JSON (no markdown fences). Shape:
     "flow": <number 0-100>,
     "rhythm": <number 0-100>,
     "vocabulary": <number 0-100>,
-    "retention": <number 0-100>
+    "retention": <number 0-100>,
+    "persona": <number 0-100>,
+    "authority": <number 0-100>,
+    "storyStructure": <number 0-100>,
+    "psychologicalTriggers": <number 0-100>,
+    "speechRhythm": <number 0-100>,
+    "sentenceStyle": <number 0-100>,
+    "CTA": <number 0-100>,
+    "languageMix": <number 0-100>
   }
 }
 
-Rules:
-- styleMatch scores MUST be numbers 0-100. Score honestly: if the script genuinely imitates the creator, scores should be 80+; if some dimension is off, score it lower.
-- The hook MUST deploy one of the techniques in creatorStyle.retentionTechniques.
-- Use creatorStyle.vocabulary.signatureWords naturally throughout the script where they fit — do not force them.
-- Match creatorStyle.languageMix: if hindi > 0.2, sprinkle natural Hinglish where the creator would.
-- ${mode === 'similar' ? 'STAY CLOSE to the creator\'s established patterns — minimal creative deviation.' : mode === 'creative' ? 'MILD creative deviation — try a fresh angle, but keep the voice intact.' : 'FULLY fresh take — surprise the audience, but the voice must still feel like the creator.'}
-- All content specific to the recommended concept. No placeholders, no filler.`
+═══════════════════════════════════════════════════════
+STEP 4 — SELF-VERIFY (before returning)
+═══════════════════════════════════════════════════════
 
-    const userPrompt = `CREATOR STYLE PROFILE
-${JSON.stringify(creatorStyle, null, 2)}
+Before outputting the final JSON, silently verify your Creator Voice Checklist from Step 1:
+- Did the hook use the learned openingFormula?
+- Does the body follow the learned storyStructure?
+- Are signature words and transitions present naturally?
+- Is the CTA an authentic learned formula (not generic)?
+- Does the sentence rhythm match the learned pacingStyle?
+- Are authority references/evidence used as the creator would?
+- Is the language mix accurate?
+- Are psychological triggers activated at natural points?
 
-CHANNEL
+If any checklist item is not satisfied, revise that section before returning.
+
+FINAL RULES:
+- styleMatch scores MUST be numbers 0-100. Score honestly — the score represents how closely this script matches the creator's actual style.
+- ${confidenceInstruction}
+- ${modeInstruction}
+- All content must be specific to the recommended concept. Zero placeholders, zero filler.
+- The fullScript must read like it was spoken, not written. Short punchy sentences where the creator uses them. Longer explanations where the creator would teach.`
+
+    const userPrompt = `═══ CREATOR DNA PROFILE ═══
+
+IDENTITY
+  Persona: ${creatorStyle.creatorPersona || 'unknown'}
+  Brand Voice: ${creatorStyle.brandVoice || 'unknown'}
+  Audience: ${JSON.stringify(creatorStyle.audienceProfile || {})}
+  Psychological Triggers: ${JSON.stringify(creatorStyle.psychologicalTriggers || [])}
+  Emotional Level: ${creatorStyle.emotionalLevel || 'unknown'}
+  Humor Level: ${creatorStyle.humorLevel || 'unknown'}
+
+SPEECH ARCHITECTURE
+  Opening Formula: ${creatorStyle.openingFormula || 'unknown'}
+  Story Structure: ${JSON.stringify(creatorStyle.storyStructure || [])}
+  Signature Patterns: ${JSON.stringify(creatorStyle.signaturePatterns || [])}
+  CTA Formula: ${JSON.stringify(creatorStyle.ctaFormula || [])}
+
+VOICE DNA
+${dnaBlock || '  (no speechDNA — working from legacy profile)'}
+
+VOCABULARY
+  Formality: ${creatorStyle.vocabulary?.formality ?? 'unknown'}
+  Technicality: ${creatorStyle.vocabulary?.technicality ?? 'unknown'}
+  Signature Words: ${JSON.stringify(creatorStyle.vocabulary?.signatureWords || [])}
+  Recurring Phrases: ${JSON.stringify(creatorStyle.vocabulary?.recurringPhrases || [])}
+  Favorite Transitions: ${JSON.stringify(creatorStyle.vocabulary?.favoriteTransitions || [])}
+  Emphasis Words: ${JSON.stringify(creatorStyle.vocabulary?.emphasisWords || [])}
+
+LANGUAGE MIX
+  ${JSON.stringify(creatorStyle.languageMix || {})}
+
+AUTHORITY & EVIDENCE
+  Authority Style: ${JSON.stringify(creatorStyle.authorityStyle || [])}
+  Evidence Style: ${JSON.stringify(creatorStyle.evidenceStyle || [])}
+
+STYLE EXAMPLES (study the PATTERN, do NOT copy verbatim)
+${examplesBlock || '  (no examples — working from legacy profile)'}
+
+WRITING TONE: ${creatorStyle.writingTone || 'unknown'}
+HOOK STYLE: ${creatorStyle.hookStyle || 'unknown'}
+CTA STYLE: ${creatorStyle.ctaStyle || 'unknown'}
+RETENTION TECHNIQUES: ${JSON.stringify(creatorStyle.retentionTechniques || [])}
+
+CONFIDENCE: ${creatorStyle.styleConfidence?.overall ?? 'unknown'} (${creatorStyle.styleConfidence?.dataSource || 'unknown'})
+
+═══ CHANNEL ═══
   Title: ${channel.title || '(unknown)'}
-  Description: ${(channel.description || '(none provided)').substring(0, 400)}
+  Description: ${(channel.description || '(none)').substring(0, 300)}
 
-RECENT VIDEOS (for reference, top ${topVideos.length})
+═══ RECENT VIDEOS (reference) ═══
 ${topVideos.length
       ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views`).join('\n')
       : '  (none)'}
 
-RECOMMENDED CONCEPT — write the script for this one
+═══ RECOMMENDED CONCEPT ═══
   title: ${recommendation.title || '(none)'}
   whyRecommended: ${recommendation.whyRecommend || '(none)'}
   predictedViews: ${recommendation.predictedViews || 'n/a'}
@@ -2122,7 +2404,7 @@ RECOMMENDED CONCEPT — write the script for this one
 
 MODE: ${mode}
 
-Write the script now — imitate the creator's voice, don't write generic AI prose.`
+Now follow Steps 1–4. Build the Voice Checklist, study the examples, write the script, verify against the checklist.`
 
     const cacheParams = {
       channelId,
@@ -2207,33 +2489,71 @@ Apply the transformation now.`
     )
   }
 
-  // Scores how closely a given script matches the creator's style profile.
-  // Used by the editor to show a live Style Match panel and by generateStyledScript
-  // to validate its own output.
+  // Scores how closely a given script matches the creator's Creator DNA profile.
+  // Used by the editor to show a live Style Match panel.
+  // The `styleMatch` shape is a superset of the v1 shape — overall + 6 existing
+  // dimensions are unchanged (validator passes). 9 new diagnostic dimensions added.
   async scoreScriptStyle(ctx = {}, _opts = {}) {
     const channelId = ctx.channelId || ''
     const script = ctx.script || {}
     const creatorStyle = ctx.creatorStyle || {}
 
-    const systemPrompt = `You are a strict editor scoring how well a script imitates a specific creator's voice. Be honest — do not default to high scores.
+    // Compact profile summary for the scoring prompt
+    const profileSummary = {
+      summary: creatorStyle.summary,
+      creatorPersona: creatorStyle.creatorPersona,
+      brandVoice: creatorStyle.brandVoice,
+      audienceProfile: creatorStyle.audienceProfile,
+      psychologicalTriggers: creatorStyle.psychologicalTriggers,
+      openingFormula: creatorStyle.openingFormula,
+      storyStructure: creatorStyle.storyStructure,
+      humorLevel: creatorStyle.humorLevel,
+      emotionalLevel: creatorStyle.emotionalLevel,
+      languageMix: creatorStyle.languageMix,
+      hookStyle: creatorStyle.hookStyle,
+      ctaStyle: creatorStyle.ctaStyle,
+      ctaFormula: creatorStyle.ctaFormula,
+      writingTone: creatorStyle.writingTone,
+      authorityStyle: creatorStyle.authorityStyle,
+      evidenceStyle: creatorStyle.evidenceStyle,
+      vocabulary: creatorStyle.vocabulary,
+      signaturePatterns: creatorStyle.signaturePatterns,
+      speechDNA: creatorStyle.speechDNA,
+      retentionTechniques: creatorStyle.retentionTechniques,
+    }
+
+    const systemPrompt = `You are a strict voice-match auditor. Score how closely a given script imitates a specific creator's learned DNA profile. Be calibrated and honest — do not default to high scores.
 
 Return ONLY valid JSON. Shape:
 {
   "styleMatch": {
-    "overall": <number 0-100>,
-    "language": <number 0-100, how well the language mix matches>,
-    "hook": <number 0-100, hook technique alignment>,
-    "flow": <number 0-100, conversation flow>,
-    "rhythm": <number 0-100, sentence length and pacing>,
-    "vocabulary": <number 0-100, signature word usage and formality>,
-    "retention": <number 0-100, retention technique usage>
+    "overall": <number 0-100, weighted average — weight hook, rhythm, and vocabulary most heavily>,
+    "language": <number 0-100, how accurately the language mix (English/Hindi ratio) matches>,
+    "hook": <number 0-100, does the hook match the learned openingFormula and hookStyle>,
+    "flow": <number 0-100, does conversational flow match the creator's learned pattern>,
+    "rhythm": <number 0-100, does sentence length and pacing match speechDNA.pacingStyle and averageSentenceLength>,
+    "vocabulary": <number 0-100, are signatureWords, recurringPhrases, and transitions present naturally>,
+    "retention": <number 0-100, are learned retentionTechniques and curiosityLoops present>,
+    "persona": <number 0-100, does the narrator role and communication style match creatorPersona>,
+    "authority": <number 0-100, are authority references (laws, stats, reports, etc.) used the way this creator would>,
+    "storyStructure": <number 0-100, does the body follow the learned storyStructure order>,
+    "psychologicalTriggers": <number 0-100, are the right psychological triggers activated at natural points>,
+    "speechRhythm": <number 0-100, does question density, punchline frequency, and pause patterns match speechDNA>,
+    "sentenceStyle": <number 0-100, does sentence complexity and short-vs-long ratio match speechDNA>,
+    "examplesSimilarity": <number 0-100, do hook/CTA/transition patterns feel similar to the styleExamples>,
+    "CTA": <number 0-100, does the CTA match the learned ctaFormula rather than being generic>,
+    "languageMix": <number 0-100, same as language but focused on code-switch frequency precision>
   }
 }
 
-Score each dimension independently. overall should be a weighted average leaning on the dimensions most relevant to the creator's voice (hook, rhythm, vocabulary).`
+Scoring rules:
+- overall is the PRIMARY score used by the frontend — weight it on hook (25%), rhythm (20%), vocabulary (20%), flow (15%), language (10%), retention (10%).
+- Score each dimension independently against the profile signals.
+- If a profile field is missing/unknown, skip that dimension's contribution (score it 50 as neutral).
+- Never award 90+ unless the script genuinely sounds indistinguishable from the creator.`
 
-    const userPrompt = `CREATOR STYLE PROFILE
-${JSON.stringify(creatorStyle, null, 2)}
+    const userPrompt = `CREATOR DNA PROFILE
+${JSON.stringify(profileSummary, null, 2)}
 
 SCRIPT TO SCORE
   title: ${script.title || ''}
@@ -2241,7 +2561,7 @@ SCRIPT TO SCORE
   fullScript: ${(script.fullScript || '').substring(0, 3000)}
   cta: ${script.cta || ''}
 
-Score it honestly now.`
+Score all dimensions honestly now.`
 
     return this._execute(
       'scoreScriptStyle',
