@@ -1,6 +1,6 @@
 // Search provider factory — mirrors services/ai/index.js. Resolution order
 // (first configured wins):
-//   1. SEARCH_PROVIDER=tavily + TAVILY_API_KEY  → TavilyProvider (future)
+//   1. SEARCH_PROVIDER=tavily + TAVILY_API_KEY  → TavilySearchProvider (grounded)
 //   2. SEARCH_PROVIDER=bing + AZURE_BING_SEARCH_KEY → BingProvider (future)
 //   3. default → StubSearchProvider (non-grounded)
 //
@@ -19,16 +19,15 @@ let activeProviderInstance
 let activeProviderLabel = 'stub'
 
 if (providerType === 'tavily' && tavilyApiKey) {
-  // Future: import { TavilySearchProvider } from './tavilySearchProvider.js'
-  // activeProviderInstance = new TavilySearchProvider(tavilyApiKey)
-  // activeProviderLabel = 'tavily'
-  console.warn('[Search] SEARCH_PROVIDER=tavily is not implemented yet — falling back to stub. Implement backend/services/search/tavilySearchProvider.js to enable.')
+  const { TavilySearchProvider } = await import('./tavilySearchProvider.js')
+  activeProviderInstance = new TavilySearchProvider(tavilyApiKey)
+  activeProviderLabel = 'tavily'
+} else if (providerType === 'tavily' && !tavilyApiKey) {
+  console.warn('[Search] SEARCH_PROVIDER=tavily but TAVILY_API_KEY is missing — falling back to stub.')
   activeProviderInstance = new StubSearchProvider()
   activeProviderLabel = 'stub'
 } else if (providerType === 'bing' && azureBingKey) {
   // Future: import { BingSearchProvider } from './bingSearchProvider.js'
-  // activeProviderInstance = new BingSearchProvider(azureBingKey)
-  // activeProviderLabel = 'bing'
   console.warn('[Search] SEARCH_PROVIDER=bing is not implemented yet — falling back to stub. Implement backend/services/search/bingSearchProvider.js to enable.')
   activeProviderInstance = new StubSearchProvider()
   activeProviderLabel = 'stub'

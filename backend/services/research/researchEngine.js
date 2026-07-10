@@ -41,11 +41,11 @@ export async function analyzeScript({
   const scriptHash = hashScript(working)
   const ai = getAIProvider()
   const search = getSearchProvider()
-  const grounded = isSearchGrounded()
-  const searchLabel = getSearchProviderLabel()
+  const configuredGrounded = isSearchGrounded()
+  const configuredLabel = getSearchProviderLabel()
 
   console.log(`[ResearchEngine] analyzeScript start`, {
-    workspaceId, channelId, ideaId, scriptHash: scriptHash.slice(0, 12), grounded,
+    workspaceId, channelId, ideaId, scriptHash: scriptHash.slice(0, 12), grounded: configuredGrounded,
   })
 
   // ── Step 3: extract claims ──────────────────────────────────────────────
@@ -57,10 +57,25 @@ export async function analyzeScript({
 
   // ── Step 4: batch search (no-op in stub mode) ───────────────────────────
   // De-duplicate claims by text before firing searches — multiple claims
-  // with the same text share results.
+  // with the same text share results. The Tavily provider also caches by
+  // query, so identical claims across runs don't re-hit the API.
   const uniqueClaimTexts = [...new Set(claims.map((c) => c.text))]
   const searchResultsMap = await search.batchSearch(uniqueClaimTexts)
-  console.log(`[ResearchEngine] batchSearch → ${searchResultsMap.size} result set(s) via ${searchLabel}`)
+  console.log(`[ResearchEngine] batchSearch → ${searchResultsMap.size} result set(s) via ${configuredLabel}`)
+
+  // ── Degraded-mode detection ─────────────────────────────────────────────
+  // If a grounded provider (Tavily) hit consecutive failures during the
+  // batch, fall back to AI-only analysis for this run. The report is marked
+  // so the UI surfaces the fallback message instead of the live banner.
+  const degraded = typeof search.isDegraded === 'function' && search.isDegraded()
+  const effectiveGrounded = configuredGrounded && !degraded
+  const effectiveLabel = degraded ? 'stub-fallback' : configuredLabel
+
+  if (degraded) {
+    console.warn(
+      `[ResearchEngine] search provider degraded (${search.lastError || 'unknown error'}) — falling back to AI-only analysis for this run`,
+    )
+  }
 
   // ── Step 5: final analysis pass ─────────────────────────────────────────
   const analysis = await ai.analyzeScriptResearch(
@@ -68,12 +83,23 @@ export async function analyzeScript({
       script: working,
       claims,
       searchResults: searchResultsMap,
-      grounded,
+      grounded: effectiveGrounded,
       channelId,
     },
     { channelId, feature: 'analyze-script-research', userId },
   )
   console.log(`[ResearchEngine] analyzeScriptResearch → score=${analysis?.researchScore?.overall ?? 'n/a'}`)
+
+  // ── Verification stats log ──────────────────────────────────────────────
+  const verdictCounts = { verified: 0, 'needs-citation': 0, weak: 0, false: 0, unverified: 0 }
+  let sourcesCount = 0
+  for (const c of analysis?.claims || []) {
+    if (c.verdict && verdictCounts[c.verdict] != null) verdictCounts[c.verdict] += 1
+    sourcesCount += Array.isArray(c.sources) ? c.sources.length : 0
+  }
+  const verifiedCount = verdictCounts.verified
+  const needsReviewCount = verdictCounts['needs-citation'] + verdictCounts.weak + verdictCounts.false
+  console.log(`[Search]\n  Provider: ${effectiveLabel}\n  Claims: ${claims.length}\n  Verified: ${verifiedCount}\n  Needs Review: ${needsReviewCount}\n  Sources: ${sourcesCount}`)
 
   // ── Step 6: compose report doc ──────────────────────────────────────────
   // Stable suggestion ids based on the find string — keeps ids deterministic
@@ -95,9 +121,9 @@ export async function analyzeScript({
     },
     providerUsed: {
       ai: 'deepseek',
-      search: searchLabel,
+      search: effectiveLabel,
     },
-    limitedVerification: !grounded,
+    limitedVerification: !effectiveGrounded,
     generatedAt: new Date(),
     analyzedAt: new Date(),
   }

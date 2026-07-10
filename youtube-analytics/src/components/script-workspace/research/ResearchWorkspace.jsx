@@ -11,6 +11,7 @@ import ResearchHistoryCard from './ResearchHistoryCard'
 import MetricsStrip from './MetricsStrip'
 import CoverageWidget from './CoverageWidget'
 import LimitedVerificationBadge from './LimitedVerificationBadge'
+import LiveVerificationBadge from './LiveVerificationBadge'
 import ClaimList from './ClaimList'
 import SuggestionCard from './SuggestionCard'
 import PriorityGroup from './PriorityGroup'
@@ -291,8 +292,12 @@ export default function ResearchWorkspace({
                     <EmptyResearchState variant={emptyVariant} />
                   ) : (
                     <>
-                      {limitedVerification && (
+                      {limitedVerification ? (
                         <LimitedVerificationBadge provider={providerUsed?.search} />
+                      ) : (
+                        providerUsed?.search && providerUsed.search !== 'stub' && (
+                          <LiveVerificationBadge provider={providerUsed.search} />
+                        )
                       )}
 
                       {stale && (
