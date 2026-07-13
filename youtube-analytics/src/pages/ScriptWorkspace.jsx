@@ -10,6 +10,7 @@ import StyleMatchPanel from '../components/script-workspace/StyleMatchPanel'
 import VideoGenerationPlaceholder from '../components/script-workspace/VideoGenerationPlaceholder'
 import ResearchWorkspace from '../components/script-workspace/research/ResearchWorkspace'
 import ContentHealthCard from '../components/script-workspace/research/ContentHealthCard'
+import ThumbnailWorkspace from '../components/script-workspace/thumbnail/ThumbnailWorkspace'
 import { ErrorState } from '../components/content-intelligence/StateShells'
 
 export default function ScriptWorkspace() {
@@ -207,6 +208,15 @@ export default function ScriptWorkspace() {
                 onSuggestionApplied={handleSuggestionApplied}
                 onJumpTo={handleJumpTo}
                 onReportChange={handleReportChange}
+              />
+            )}
+
+            {/* Full-width Thumbnail Intelligence — Phase 3.1 (no image gen yet) */}
+            {status === 'ready' && (
+              <ThumbnailWorkspace
+                channelId={channelId}
+                ideaId={ideaId}
+                scriptAvailable={Boolean(working?.fullScript?.trim())}
               />
             )}
 

@@ -72,6 +72,11 @@ const CACHE_TTL = {
   // expensive final pass — cache a full day.
   extractScriptClaims: 6,
   analyzeScriptResearch: 24,
+  // Thumbnail Intelligence (Phase 3.1) — DNA is stable per channel; strategy
+  // is stable per (channel, idea); similarity rescore is cheaper.
+  analyzeThumbnailStyle: 168,
+  generateThumbnailStrategy: 168,
+  scoreThumbnailSimilarity: 24,
   // Portfolio Intelligence — expensive multi-channel computations, cache aggressively
   getPortfolioStrategist: 24,
   getAudienceOverlap: 24,
@@ -103,6 +108,9 @@ const PREMIUM_METHODS = new Set([
   'scoreScriptStyle',
   // Research Workspace — final pass combines claims + sources into a verdict.
   'analyzeScriptResearch',
+  // Thumbnail Intelligence (Phase 3.1) — deep visual-style reasoning
+  'analyzeThumbnailStyle',
+  'generateThumbnailStrategy',
 ])
 
 function makeCacheKey(method, params) {
@@ -384,6 +392,26 @@ const VALIDATORS = {
     if (!Array.isArray(obj.missingContext)) return false
     if (!obj.researchScore || typeof obj.researchScore !== 'object') return false
     if (typeof obj.researchScore.overall !== 'number') return false
+    return true
+  },
+  // Thumbnail Intelligence (Phase 3.1)
+  analyzeThumbnailStyle(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (typeof obj.summary !== 'string') return false
+    return true
+  },
+  generateThumbnailStrategy(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (!Array.isArray(obj.concepts)) return false
+    if (typeof obj.prompt !== 'string' || obj.prompt.trim().length === 0) return false
+    if (!obj.similarity || typeof obj.similarity !== 'object') return false
+    if (typeof obj.similarity.overall !== 'number') return false
+    return true
+  },
+  scoreThumbnailSimilarity(obj) {
+    if (!obj || typeof obj !== 'object') return false
+    if (!obj.similarity || typeof obj.similarity !== 'object') return false
+    if (typeof obj.similarity.overall !== 'number') return false
     return true
   },
 }
@@ -2744,6 +2772,265 @@ Produce the Research Report now.`
     return this._execute(
       'analyzeScriptResearch',
       { scriptHash: scriptHashInput, channelId: ctx.channelId || '' },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.3 },
+    )
+  }
+
+  // ── Thumbnail Intelligence (Phase 3.1) ──────────────────────────────────
+  //
+  // analyzeThumbnailStyle — reverse-engineers a creator's thumbnail DNA from
+  // their channel metadata, video titles, and performance data. The DNA is a
+  // structured description of visual style (colors, typography, layout,
+  // branding, emotion, clickbait intensity, consistency) that downstream
+  // strategy generation uses to produce on-brand thumbnail concepts.
+  //
+  // Phase 3.1: DNA is AI-inferred from metadata. Phase 3.2+ can enrich with
+  // real image analysis (color extraction, face detection, OCR) — the schema
+  // already has slots for those fields.
+  async analyzeThumbnailStyle(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const channel = ctx.channel || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+
+    const topVideos = videos.slice(0, 15).map((v) => ({
+      title: v.title,
+      views: v.views,
+      likes: v.likes,
+      thumbnail: v.thumbnail || null,
+      publishedAt: v.publishedAt,
+    }))
+
+    const systemPrompt = `You are a thumbnail designer who reverse-engineers creators' visual style. Given a channel's recent video titles, view counts, and channel description, you produce a Thumbnail DNA Profile — a structured description of how this creator designs thumbnails.
+
+The DNA is used downstream to generate on-brand thumbnail concepts and an editable generation prompt. Be specific and actionable — every field should help a designer or AI replicate the style.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "summary": "<2-3 sentence plain-English description of this creator's thumbnail style>",
+  "colors": {
+    "primary": ["<2-3 named or hex colors>"],
+    "accent": ["<1-2 highlight colors>"],
+    "background": "<typical background color>"
+  },
+  "typography": {
+    "style": "<one of: bold-sans | condensed-sans | serif | script | mixed>",
+    "size": "<one of: small | medium | large | extra-large>",
+    "position": "<one of: left | center | right | top | bottom | overlay>",
+    "stroke": "<one of: none | thin-white | bold-white | black-stroke | colored-stroke>",
+    "shadow": "<one of: none | soft-drop | hard-drop | glow | double>"
+  },
+  "layout": {
+    "facePlacement": "<one of: none | left | right | center | inset-small | split-screen>",
+    "textPosition": "<one of: left | right | center | top | bottom | overlay-full>",
+    "composition": "<one of: face-plus-text | text-only | object-focus | split-screen | minimal>",
+    "negativeSpace": "<one of: none | minimal | moderate | generous>",
+    "visualClutter": "<one of: clean | balanced | busy | dense>"
+  },
+  "branding": {
+    "logoPlacement": "<one of: none | corner | watermark | none>",
+    "logoConsistency": <0-1>
+  },
+  "elements": {
+    "arrows": <true|false>,
+    "circles": <true|false>,
+    "emojis": <true|false>,
+    "objectHighlighting": <true|false>
+  },
+  "emotion": ["<2-4 emotions: shock | curiosity | urgency | excitement | anger | awe | fear | joy | confusion | intrigue>"],
+  "clickbaitIntensity": <0-1>,
+  "ctrStyle": "<one of: high-contrast | curiosity-gap | reaction-shot | bold-text | minimal-clean | numbered-list | comparison>",
+  "visualHierarchy": "<one of: face-dominant | text-dominant | balanced | object-dominant>",
+  "consistencyScore": <0-100>
+}
+
+Rules:
+- Every 0-1 score and 0-100 score must be a number, not a string.
+- Infer colors from the channel niche and title energy (e.g., gaming → red/black/yellow; finance → blue/green/white; beauty → pink/white/gold).
+- Infer typography from title capitalization patterns (ALL CAPS → bold-sans; Title Case → medium serif/sans).
+- Infer emotion from title sentiment (questions → curiosity; exclamation → excitement/urgency; numbers → intrigue).
+- "consistencyScore" reflects how uniform the creator's thumbnail style appears across videos (100 = very consistent, 0 = random).
+- Do not invent facts. If video data is sparse, mark fields "unknown" or null rather than guessing wildly.`
+
+    const userPrompt = `CHANNEL
+  Title: ${channel.title || '(unknown)'}
+  Handle: ${channel.handle || '(none)'}
+  Description: ${(channel.description || '(none provided)').substring(0, 800)}
+  Subscribers: ${channel.subscribers || 0}
+  Niche/Category: ${channel.category || channel.niche || '(unknown)'}
+
+RECENT VIDEOS (top ${topVideos.length})
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`).join('\n')
+      : '  (no video data available — infer from niche and description)'}
+
+Build the Thumbnail DNA Profile now.`
+
+    return this._execute(
+      'analyzeThumbnailStyle',
+      { channelId },
+      systemPrompt,
+      userPrompt,
+      { temperature: 0.5 },
+    )
+  }
+
+  // generateThumbnailStrategy — produces 3-5 thumbnail concepts + an editable
+  // generation prompt + a similarity breakdown, all grounded in the creator's
+  // DNA, the current script, creator style, and recent performance.
+  async generateThumbnailStrategy(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const script = ctx.script || {}
+    const title = ctx.title || script?.title || ''
+    const creatorStyle = ctx.creatorStyle || {}
+    const thumbnailProfile = ctx.thumbnailProfile || {}
+    const videos = Array.isArray(ctx.videos) ? ctx.videos : []
+    const channel = ctx.channel || {}
+    const regenerate = ctx.regenerate === true
+
+    const topVideos = videos.slice(0, 8).map((v) => ({
+      title: v.title,
+      views: v.views,
+    }))
+
+    const systemPrompt = `You are a thumbnail strategist who designs click-optimized YouTube thumbnails that match a creator's established visual style. You are given:
+1. A Thumbnail DNA Profile (the creator's visual style)
+2. A Creator Style Profile (the creator's voice/tone)
+3. The current script + title for the video
+4. The channel's recent video titles + performance
+
+Your job: produce 3-5 thumbnail concepts, each with a title, explanation, predicted CTR, and similarity to the creator's historical style. Plus an editable generation prompt that a designer or image AI can use. Plus a similarity breakdown comparing the concepts to the creator's DNA.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "concepts": [
+    {
+      "id": "concept-1",
+      "title": "<short label for this thumbnail concept, under 60 chars>",
+      "explanation": "<1-2 sentence description of what the thumbnail shows>",
+      "audienceReaction": "<1 sentence: what emotion/action this triggers in the viewer>",
+      "whyItFits": "<1 sentence: why this matches the creator's style>",
+      "predictedCTR": <number 0-20, e.g. 9.3 means 9.3%>,
+      "similarity": <number 0-100>,
+      "confidence": <number 0-100>
+    }
+  ],
+  "prompt": "<a detailed, editable prompt for generating this thumbnail. Include style, composition, colors, text, emotion, layout. 4-8 sentences. This will be edited by the user and later sent to an image generator.>",
+  "similarity": {
+    "overall": <number 0-100>,
+    "colors": <number 0-100>,
+    "typography": <number 0-100>,
+    "layout": <number 0-100>,
+    "composition": <number 0-100>,
+    "emotion": <number 0-100>,
+    "branding": <number 0-100>,
+    "textStyle": <number 0-100>,
+    "visualIdentity": <number 0-100>
+  }
+}
+
+Rules:
+- Produce 3-5 concepts. Each must have a distinct angle (e.g., curiosity-gap, reaction-shot, bold-text, comparison, minimal).
+- predictedCTR must be a number (e.g., 8.5 for 8.5%). Base it on the creator's historical performance and the concept's alignment with their style.
+- similarity (per concept) = how closely this concept matches the creator's DNA (0-100).
+- confidence = how sure you are this concept will perform (0-100).
+- The prompt must be specific enough to generate a thumbnail: mention colors, text style, face/expression, layout, background, emotion. Use the DNA's language.
+- The similarity breakdown compares the overall strategy (concepts + prompt) against the creator's DNA.
+- All scores must be numbers, not strings.
+- Do not reference image generation APIs. The prompt is a text description.`
+
+    const userPrompt = `THUMBNAIL DNA PROFILE
+${JSON.stringify(thumbnailProfile, null, 2)}
+
+CREATOR STYLE PROFILE
+${JSON.stringify(creatorStyle, null, 2)}
+
+CHANNEL
+  Title: ${channel.title || '(unknown)'}
+  Niche: ${channel.category || channel.niche || '(unknown)'}
+
+RECENT VIDEOS (top ${topVideos.length})
+${topVideos.length
+      ? topVideos.map((v, i) => `  ${i + 1}. "${v.title}" — ${v.views || 0} views`).join('\n')
+      : '  (none)'}
+
+CURRENT SCRIPT
+  Title: ${title}
+  Hook: ${script?.hook || '(none)'}
+  Full script (truncated): ${(script?.fullScript || '').slice(0, 2000)}
+  CTA: ${script?.cta || '(none)'}
+
+${regenerate ? 'REGENERATE: produce fresh concepts, different from any prior attempt.' : 'Generate the thumbnail strategy now.'}`
+
+    const cacheParams = {
+      channelId,
+      ideaId: ctx.ideaId || '',
+      ideaTitle: title,
+      scriptHash: `${title}::${(script?.fullScript || '').length}`,
+    }
+    if (regenerate) {
+      cacheParams.regenAt = ctx.regenAt || Date.now()
+    }
+
+    return this._execute(
+      'generateThumbnailStrategy',
+      cacheParams,
+      systemPrompt,
+      userPrompt,
+      { temperature: regenerate ? 0.9 : 0.7 },
+    )
+  }
+
+  // scoreThumbnailSimilarity — cheap re-score pass on the current strategy's
+  // similarity breakdown. Used after the user edits the prompt, so the
+  // similarity reflects the edited prompt vs the creator's DNA. Does NOT
+  // re-generate concepts.
+  async scoreThumbnailSimilarity(ctx = {}, _opts = {}) {
+    const channelId = ctx.channelId || ''
+    const strategy = ctx.strategy || {}
+    const thumbnailProfile = ctx.thumbnailProfile || {}
+
+    const systemPrompt = `You are a thumbnail style analyst. Given a thumbnail strategy (concepts + prompt) and a creator's Thumbnail DNA Profile, produce a similarity breakdown comparing the strategy against the DNA.
+
+Return ONLY valid JSON (no markdown fences). Shape:
+{
+  "similarity": {
+    "overall": <number 0-100>,
+    "colors": <number 0-100>,
+    "typography": <number 0-100>,
+    "layout": <number 0-100>,
+    "composition": <number 0-100>,
+    "emotion": <number 0-100>,
+    "branding": <number 0-100>,
+    "textStyle": <number 0-100>,
+    "visualIdentity": <number 0-100>
+  }
+}
+
+Rules:
+- All scores must be numbers 0-100.
+- Compare the strategy's prompt + concepts against the DNA's colors, typography, layout, branding, emotion.
+- "overall" is a weighted average, not a simple mean — weight visualIdentity and colors highest.
+- If the prompt was edited to deviate from the DNA, score lower. If it aligns, score higher.`
+
+    const userPrompt = `THUMBNAIL DNA PROFILE
+${JSON.stringify(thumbnailProfile, null, 2)}
+
+CURRENT STRATEGY
+  Prompt: ${strategy.prompt || '(empty)'}
+  Concepts: ${(strategy.concepts || []).length} concept(s)
+${(strategy.concepts || []).slice(0, 3).map((c, i) => `    ${i + 1}. "${c.title}" — CTR ${c.predictedCTR}%`).join('\n')}
+
+Produce the similarity breakdown now.`
+
+    return this._execute(
+      'scoreThumbnailSimilarity',
+      {
+        channelId,
+        promptHash: `${(strategy.prompt || '').length}::${(strategy.concepts || []).length}`,
+        profileId: ctx.profileId || '',
+      },
       systemPrompt,
       userPrompt,
       { temperature: 0.3 },

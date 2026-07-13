@@ -31,6 +31,15 @@ import {
   applySuggestion,
   ignoreSuggestion,
 } from '../controllers/researchController.js'
+import {
+  getThumbnailWorkspace,
+  generateThumbnailStrategyController,
+  saveThumbnailStrategy,
+  undoThumbnailStrategy,
+  redoThumbnailStrategy,
+  scoreThumbnailSimilarityController,
+  analyzeThumbnailProfileController,
+} from '../controllers/thumbnailController.js'
 
 const router = Router()
 
@@ -84,6 +93,19 @@ router.get('/:channelId/script-workspace/:ideaId/research', getResearch)
 router.post('/:channelId/script-workspace/:ideaId/research/analyze', analyzeResearch)
 router.post('/:channelId/script-workspace/:ideaId/research/suggestions/:suggestionId/apply', applySuggestion)
 router.post('/:channelId/script-workspace/:ideaId/research/suggestions/:suggestionId/ignore', ignoreSuggestion)
+
+// ── Thumbnail Intelligence (Phase 3.1) ────────────────────────────────────
+// Versioned workspace for thumbnail concepts + editable prompt + similarity
+// analysis. Grounded in the creator's Thumbnail DNA profile (cached per
+// channel) and the current script. NO image generation in Phase 3.1 — the
+// prompt is a text artifact the user edits; "Generate Thumbnail" is disabled.
+router.get('/:channelId/thumbnail-workspace/:ideaId', getThumbnailWorkspace)
+router.post('/:channelId/thumbnail-workspace/:ideaId/generate', generateThumbnailStrategyController)
+router.post('/:channelId/thumbnail-workspace/:ideaId/save', saveThumbnailStrategy)
+router.post('/:channelId/thumbnail-workspace/:ideaId/undo', undoThumbnailStrategy)
+router.post('/:channelId/thumbnail-workspace/:ideaId/redo', redoThumbnailStrategy)
+router.post('/:channelId/thumbnail-workspace/:ideaId/similarity-score', scoreThumbnailSimilarityController)
+router.post('/:channelId/thumbnail-profile', analyzeThumbnailProfileController)
 
 // Input-scoped analysis (no channel required)
 router.post('/analyze/title', analyzeTitle)

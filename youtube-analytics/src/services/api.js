@@ -402,6 +402,68 @@ export const ignoreResearchSuggestion = (channelId, ideaId, suggestionId) =>
     )
     .then((r) => r.data)
 
+// ── Thumbnail Intelligence (Phase 3.1) ─────────────────────────────────────
+// Versioned workspace for thumbnail concepts + editable prompt + similarity
+// analysis. Grounded in the channel's Thumbnail DNA profile and the current
+// script. NO image generation in this phase — "Generate Thumbnail" is disabled.
+export const getThumbnailWorkspace = (channelId, ideaId) =>
+  dedupeAI(`thumbnail-workspace:get:${channelId}:${ideaId}`, () =>
+    api.get(`/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}`, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const generateThumbnailStrategy = (channelId, ideaId, { regenerate = false, recommendation = null, script = null } = {}) =>
+  dedupeAI(
+    `thumbnail-workspace:gen:${channelId}:${ideaId}${regenerate ? ':regen' : ''}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}/generate`,
+        { regenerate, recommendation, script },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+// Save bypasses dedupe — every save must hit the server.
+export const saveThumbnailStrategy = (channelId, ideaId, { working, source = 'user-edit', action = null, commit = false } = {}) =>
+  api
+    .post(
+      `/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}/save`,
+      { working, source, action, commit },
+      { timeout: AI_TIMEOUT },
+    )
+    .then((r) => r.data)
+
+export const undoThumbnailStrategy = (channelId, ideaId) =>
+  dedupeAI(`thumbnail-workspace:undo:${channelId}:${ideaId}`, () =>
+    api.post(`/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}/undo`, {}, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const redoThumbnailStrategy = (channelId, ideaId) =>
+  dedupeAI(`thumbnail-workspace:redo:${channelId}:${ideaId}`, () =>
+    api.post(`/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}/redo`, {}, { timeout: AI_TIMEOUT }).then((r) => r.data))
+
+export const scoreThumbnailSimilarity = (channelId, ideaId, { strategy = null } = {}) =>
+  dedupeAI(
+    `thumbnail-workspace:score:${channelId}:${ideaId}:${(strategy?.prompt || '').length}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/thumbnail-workspace/${ideaId}/similarity-score`,
+        { strategy },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
+export const analyzeThumbnailProfile = (channelId, { regenerate = false } = {}) =>
+  dedupeAI(
+    `thumbnail-profile:${channelId}${regenerate ? ':regen' : ''}`,
+    () => api
+      .post(
+        `/api/intelligence/${channelId}/thumbnail-profile`,
+        { regenerate },
+        { timeout: AI_TIMEOUT },
+      )
+      .then((r) => r.data),
+  )
+
 export const getContentGaps = (channelId, payload = {}) =>
   dedupeAI(`content-gaps:${channelId}`, () =>
     api.post(`/api/intelligence/${channelId}/content-gaps`, payload, { timeout: AI_TIMEOUT }).then((r) => r.data))

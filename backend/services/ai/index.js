@@ -28,6 +28,8 @@ const PROVIDER_METHOD_NAMES = [
   'analyzeCreatorStyle', 'generateStyledScript', 'rewriteScript', 'scoreScriptStyle',
   // Research Workspace (Phase 2) — claim extraction + final analysis pass
   'extractScriptClaims', 'analyzeScriptResearch',
+  // Thumbnail Intelligence (Phase 3.1) — DNA profile, strategy concepts, similarity rescore
+  'analyzeThumbnailStyle', 'generateThumbnailStrategy', 'scoreThumbnailSimilarity',
   // Portfolio Intelligence
   'getPortfolioSummary', 'getAudienceOverlap', 'getCrossPromotion',
   'getPortfolioContentGaps', 'getCannibalization', 'getPortfolioStrategist',
