@@ -181,7 +181,31 @@ export async function generateThumbnailStrategyController(req, res, next) {
     }
 
     // ── Creator style (cached) — grounds concepts in voice ─────────────────
-    const creatorStyleDoc = await CreatorStyleProfile.findForChannel(req.workspaceId, channelId)
+    // If the creator style profile is stale (old extraction version), rebuild
+    // it inline so the thumbnail generator benefits from the fresh speakingStyle.
+    let creatorStyleDoc = await CreatorStyleProfile.findForChannel(req.workspaceId, channelId)
+    const creatorStyleStale = !creatorStyleDoc
+      || (creatorStyleDoc.profileVersion || 1) !== CreatorStyleProfile.CURRENT_PROFILE_VERSION
+    if (creatorStyleStale) {
+      log('[4c] Rebuilding stale creator style profile (version mismatch)', {
+        storedVersion: creatorStyleDoc?.profileVersion ?? 0,
+        currentVersion: CreatorStyleProfile.CURRENT_PROFILE_VERSION,
+      })
+      const aiProvider = getAIProvider()
+      const freshProfile = await aiProvider.analyzeCreatorStyle(
+        { channelId, channel, videos },
+        { channelId, feature: 'analyze-creator-style' },
+      )
+      creatorStyleDoc = await CreatorStyleProfile.upsertForChannel(
+        req.workspaceId,
+        channelId,
+        freshProfile,
+        {
+          generatedFromVideoIds: videos.slice(0, 15).map((v) => v.videoId || v._id?.toString()),
+          profileVersion: CreatorStyleProfile.CURRENT_PROFILE_VERSION,
+        },
+      )
+    }
 
     // ── Generate the strategy ──────────────────────────────────────────────
     const provider = getAIProvider()

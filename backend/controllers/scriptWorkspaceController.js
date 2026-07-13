@@ -149,8 +149,15 @@ export async function generateStyledScriptController(req, res, next) {
 
     // ── Creator style: get-or-build ────────────────────────────────────────
     let creatorStyleDoc = await CreatorStyleProfile.findForChannel(req.workspaceId, channelId)
-    if (!creatorStyleDoc || regenerate) {
-      log('[3a] Building creator style profile (cold)', { channelId })
+    const staleProfile = !creatorStyleDoc
+      || (creatorStyleDoc.profileVersion || 1) !== CreatorStyleProfile.CURRENT_PROFILE_VERSION
+    if (staleProfile || regenerate) {
+      log('[3a] Building creator style profile (cold)', {
+        channelId,
+        reason: !creatorStyleDoc ? 'missing' : regenerate ? 'regenerate' : 'version-mismatch',
+        storedVersion: creatorStyleDoc?.profileVersion ?? 0,
+        currentVersion: CreatorStyleProfile.CURRENT_PROFILE_VERSION,
+      })
       const provider = getAIProvider()
       const profile = await provider.analyzeCreatorStyle(
         { channelId, channel, videos },
@@ -160,7 +167,10 @@ export async function generateStyledScriptController(req, res, next) {
         req.workspaceId,
         channelId,
         profile,
-        { generatedFromVideoIds: videos.slice(0, 15).map((v) => v.videoId || v._id?.toString()) },
+        {
+          generatedFromVideoIds: videos.slice(0, 15).map((v) => v.videoId || v._id?.toString()),
+          profileVersion: CreatorStyleProfile.CURRENT_PROFILE_VERSION,
+        },
       )
       log('[3b] Creator style profile built', { profileKeys: Object.keys(profile || {}) })
     } else {
@@ -449,7 +459,9 @@ export async function analyzeCreatorStyleController(req, res, next) {
     const { channel, videos } = await loadChannelContext(channelId, req.workspaceId, { req })
 
     let creatorStyleDoc = await CreatorStyleProfile.findForChannel(req.workspaceId, channelId)
-    if (creatorStyleDoc && !regenerate) {
+    const staleProfile = !creatorStyleDoc
+      || (creatorStyleDoc.profileVersion || 1) !== CreatorStyleProfile.CURRENT_PROFILE_VERSION
+    if (creatorStyleDoc && !regenerate && !staleProfile) {
       attachAIHeaders(res)
       return res.json({
         success: true,
@@ -468,7 +480,10 @@ export async function analyzeCreatorStyleController(req, res, next) {
       req.workspaceId,
       channelId,
       profile,
-      { generatedFromVideoIds: videos.slice(0, 15).map((v) => v.videoId || v._id?.toString()) },
+      {
+        generatedFromVideoIds: videos.slice(0, 15).map((v) => v.videoId || v._id?.toString()),
+        profileVersion: CreatorStyleProfile.CURRENT_PROFILE_VERSION,
+      },
     )
 
     attachAIHeaders(res)

@@ -1,10 +1,5 @@
 import mongoose from 'mongoose'
 
-// Creator Style Profile — the AI's learned model of how a specific creator
-// writes. Built from their video titles, channel description, and (later)
-// transcripts. Cached per channel so we don't re-analyze on every workspace
-// open. Thumbnail style is stored separately in ThumbnailStyleProfile but
-// denormalized here too for single-read access from the workspace bootstrap.
 const creatorStyleProfileSchema = new mongoose.Schema({
   workspaceId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -22,12 +17,25 @@ const creatorStyleProfileSchema = new mongoose.Schema({
   // Null until that runs.
   thumbnailStyle: { type: mongoose.Schema.Types.Mixed, default: null },
 
+  // Extraction schema version. Old docs have `undefined` here, which the
+  // controllers treat as v1 — see CURRENT_PROFILE_VERSION below.
+  profileVersion: { type: Number, default: 1 },
+
   // Provenance — which videos were used to build this profile.
   generatedFromVideoIds: { type: [String], default: [] },
   generatedAt: { type: Date, default: Date.now },
 }, {
   timestamps: true,
 })
+
+// Bump when the analyzeCreatorStyle extraction schema changes in a way that
+// should invalidate every cached profile. Controllers compare the stored
+// profileVersion against this constant and trigger a cold rebuild on mismatch
+// — so users get the new extraction automatically without clicking Regenerate.
+//
+//   v1 — original extraction (writing-style signals)
+//   v2 — Speech Engine 2.0: structured `speakingStyle` block (12 dimensions)
+creatorStyleProfileSchema.statics.CURRENT_PROFILE_VERSION = 2
 
 creatorStyleProfileSchema.index({ workspaceId: 1, channelId: 1 }, { unique: true })
 

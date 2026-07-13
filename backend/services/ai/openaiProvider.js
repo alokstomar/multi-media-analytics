@@ -417,6 +417,106 @@ const VALIDATORS = {
 }
 
 
+// ── speakingStyle renderers (Speech Engine 2.0) ───────────────────────────
+// Pure formatters that turn the structured speakingStyle sub-objects into a
+// readable block for the generator's user prompt. Each returns null if the
+// sub-object is missing so the caller can filter blanks.
+
+function spokenLanguageBlock(s) {
+  if (!s || typeof s !== 'object') return null
+  return `  Spoken Language:
+    primary: ${s.primary ?? 'unknown'} | secondary: ${s.secondary ?? 'none'}
+    Ratios — English ${fmtRatio(s.englishRatio)} / Hindi ${fmtRatio(s.hindiRatio)} / Other ${fmtRatio(s.otherRatio)} / Hinglish(within-sentence) ${fmtRatio(s.hinglishRatio)}
+    Code-switch: ${s.codeSwitchFrequency || 'unknown'} @ ${s.codeSwitchLocation || 'n/a'} | Script: ${s.scriptPreference || 'unknown'}
+    Technical words kept in English: ${fmtList(s.technicalWordsInEnglish)}
+    Native connectors: ${fmtList(s.nativeConnectors)}`
+}
+
+function rhythmBlock(r) {
+  if (!r || typeof r !== 'object') return null
+  return `  Rhythm:
+    avgSentenceLength: ${fmtNum(r.averageSentenceLengthWords)} words | speed: ${r.speakingSpeed || 'unknown'}
+    Pauses — overall ${r.pauseFrequency || 'unknown'} | dramatic ${r.dramaticPauseFrequency || 'unknown'} | rhetorical-Q ${r.rhetoricalQuestionFrequency || 'unknown'}
+    Punchline spacing: ${r.punchlineSpacing || 'unknown'} | repetition: ${r.repetitionFrequency || 'unknown'}`
+}
+
+function pauseStyleBlock(p) {
+  if (!p || typeof p !== 'object') return null
+  return `  Pause style: ${p.marker || 'none'}
+    Examples: ${fmtList(p.examples)}`
+}
+
+function sentenceConstructionBlock(sc) {
+  if (!sc || typeof sc !== 'object') return null
+  return `  Sentence construction:
+    fragments ${sc.fragmentFrequency || 'unknown'} | incomplete ${sc.incompleteThoughtFrequency || 'unknown'} | interruptions ${sc.interruptionFrequency || 'unknown'}
+    avg beat length: ${fmtNum(sc.averageBeatLengthWords)} words`
+}
+
+function fillersBlock(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '  Conversational fillers: (none observed — do not invent any)'
+  const items = arr.map((f) => `"${f.phrase}" (${f.frequency || '?'} @ ${f.position || '?'})`).join(', ')
+  return `  Conversational fillers (use 2-4, never all): ${items}`
+}
+
+function transitionsBlock(t) {
+  if (!t || typeof t !== 'object') return null
+  return `  Transitions:
+    topic change: ${fmtList(t.topicChange)}
+    example intro: ${fmtList(t.exampleIntro)}
+    punchline setup: ${fmtList(t.punchlineSetup)}`
+}
+
+function emotionalCurveBlock(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null
+  const items = arr.map((b) => `${b.beat}→${b.emotion}@${fmtRatio(b.intensity)}`).join(' › ')
+  return `  Emotional curve: ${items}`
+}
+
+function authorityBehaviourBlock(a) {
+  if (!a || typeof a !== 'object') return null
+  return `  Authority behaviour: ${fmtList(a.primary)}
+    citation style: ${a.citationStyle || 'unknown'}
+    examples: ${fmtList(a.examples)}`
+}
+
+function vocabularyBehaviourBlock(v) {
+  if (!v || typeof v !== 'object') return null
+  return `  Vocabulary behaviour:
+    signature phrases: ${fmtList(v.signaturePhrases)}
+    opening phrases: ${fmtList(v.openingPhrases)}
+    closing phrases: ${fmtList(v.closingPhrases)}
+    favorite expressions: ${fmtList(v.favoriteExpressions)}
+    emphasis words: ${fmtList(v.emphasisWords)}`
+}
+
+function audienceAddressingBlock(a) {
+  if (!a || typeof a !== 'object') return null
+  return `  Audience addressing: primary "${a.primary || 'none'}" | alternatives ${fmtList(a.alternatives)} | frequency ${a.frequency || 'unknown'}`
+}
+
+function storytellingBlock(s) {
+  if (!s || typeof s !== 'object') return null
+  return `  Storytelling pattern:
+    opening: ${s.opening || 'unknown'}
+    example intro: ${s.exampleIntroduction || 'unknown'}
+    key-idea repetition: ${s.keyIdeaRepetition || 'unknown'}
+    conclusion: ${s.conclusionStyle || 'unknown'}
+    CTA: ${s.ctaStyle || 'unknown'}`
+}
+
+function fmtRatio(n) {
+  return typeof n === 'number' ? `${Math.round(n * 100)}%` : 'n/a'
+}
+function fmtNum(n) {
+  return typeof n === 'number' ? String(n) : 'n/a'
+}
+function fmtList(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '(none)'
+  return arr.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ')
+}
+
+
 export class OpenAIProvider extends AIProviderInterface {
   constructor(apiKey) {
     super()
@@ -2094,6 +2194,17 @@ CONFIDENCE CALIBRATION:
 - high consistency across videos → add +0.05 to overall
 - Cap at 1.0
 
+SPEECH EXTRACTION GUIDANCE:
+The \`speakingStyle\` block below captures HOW THE CREATOR SPEAKS — not what they write. This is the single most important signal for downstream script generation. Every value should be grounded in concrete evidence from the corpus.
+
+- When transcripts are available, extract OBSERVED data: real filler words actually spoken, real pause patterns, real code-switching points, real audience-addressing words. Quote them verbatim.
+- When only descriptions/titles are available (no actual spoken content), you MUST mark uncertain fields \`null\` rather than guessing. Do not invent fillers, pauses, or audience-addressing words from titles alone. Set \`speakingStyle._speechDataConfidence\` to \`"packaging-inferred"\` so the generator knows to apply these signals conservatively.
+- Code-switching ratios (englishRatio / hindiRatio / hinglishRatio) must sum to roughly 1.0 across the three. Hinglish = within-sentence mix of Hindi + English.
+- conversationalFillers must be a list of OBSERVED phrases with frequency and position — never generic defaults. If no real speech data exists, return an empty array.
+- audienceAddressing.primary must be a real word the creator uses to address viewers (e.g. "Dosto", "Guys", "Friends", "Aap log"). If you cannot find evidence, set to "none".
+- emotionalCurve is an ordered list — first beat to last beat — showing how emotional intensity shifts across a typical video. Use stage names like Hook, Curiosity, Problem, Fear, Explanation, Example, Solution, Relief, CTA.
+- Do NOT hardcode any creator. Every value must come from the corpus. If the corpus is silent on a dimension, return \`null\` or an empty array — do NOT guess.
+
 Return ONLY valid JSON (no markdown fences). Shape:
 {
   "summary": "<2-3 sentence plain-English description of this creator's voice, teaching style, and content identity>",
@@ -2166,6 +2277,78 @@ Return ONLY valid JSON (no markdown fences). Shape:
     "suspenseUsage": "<one of: none | light | heavy>"
   },
 
+  "speakingStyle": {
+    "_speechDataConfidence": "<one of: transcripts | descriptions | packaging-inferred>",
+    "spokenLanguage": {
+      "primary": "<language name or ISO, e.g. English | Hindi | Hinglish | Tamil | Spanish>",
+      "secondary": "<language name or null>",
+      "englishRatio": <0-1>,
+      "hindiRatio": <0-1>,
+      "otherRatio": <0-1>,
+      "hinglishRatio": <0-1, the within-sentence mix fraction>,
+      "codeSwitchFrequency": "<one of: none | low | medium | high>",
+      "codeSwitchLocation": "<one of: within-sentence | between-sentence | both>",
+      "scriptPreference": "<one of: latin | devanagari | mixed>",
+      "technicalWordsInEnglish": ["<2-6 domain terms the creator keeps in English, e.g. mutual funds, tax, EMI, ROI>"],
+      "nativeConnectors": ["<2-5 native-language connector words actually used, e.g. aur, lekin, matlab, kyunki>"]
+    },
+    "rhythm": {
+      "averageSentenceLengthWords": <number or null>,
+      "pauseFrequency": "<one of: none | low | medium | high>",
+      "dramaticPauseFrequency": "<one of: none | low | medium | high>",
+      "rhetoricalQuestionFrequency": "<one of: none | low | medium | high>",
+      "punchlineSpacing": "<one of: tight | medium | wide>",
+      "repetitionFrequency": "<one of: none | low | medium | high>",
+      "speakingSpeed": "<one of: slow | measured | fast | alternating>"
+    },
+    "pauseStyle": {
+      "marker": "<one of: ellipsis | line-break | em-dash | explicit-word | none>",
+      "examples": ["<3-5 short strings showing actual pause placement observed, e.g. 'Dekhiye...' or 'Simple.\\nBahut simple.'>"]
+    },
+    "sentenceConstruction": {
+      "fragmentFrequency": "<one of: none | low | medium | high>",
+      "incompleteThoughtFrequency": "<one of: none | low | medium | high>",
+      "interruptionFrequency": "<one of: none | low | medium | high>",
+      "averageBeatLengthWords": <number or null>
+    },
+    "conversationalFillers": [
+      { "phrase": "<observed word or phrase, e.g. Dekhiye | Acha | Matlab | Honestly | Believe me | Right?>", "frequency": "<one of: low | medium | high>", "position": "<one of: opening | mid | closing | punchline>" }
+    ],
+    "transitions": {
+      "topicChange": ["<3-5 actual transition phrases observed, e.g. Lekin..., Ab problem kya hai?, Ab asli baat.>"],
+      "exampleIntro": ["<2-3 phrases, e.g. Ek example dekhte hain.>"],
+      "punchlineSetup": ["<2-3 phrases>"]
+    },
+    "emotionalCurve": [
+      { "beat": "<stage name, e.g. Hook | Curiosity | Problem | Fear | Explanation | Example | Solution | Relief | CTA>", "emotion": "<emotion word>", "intensity": <0-1> }
+    ],
+    "authorityBehaviour": {
+      "primary": ["<2-4 from: laws | statistics | stories | analogies | government-notifications | personal-experience | case-studies | screenshots | expert-quotes>"],
+      "citationStyle": "<one-line description of how this creator cites sources>",
+      "examples": ["<2-3 short observed citation snippets>"]
+    },
+    "vocabularyBehaviour": {
+      "signaturePhrases": ["<5-8 multi-word phrases the creator repeats>"],
+      "openingPhrases": ["<3-5 phrases used to open beats>"],
+      "closingPhrases": ["<3-5 phrases used to close beats>"],
+      "favoriteExpressions": ["<3-5 idioms or recurring expressions>"],
+      "emphasisWords": ["<3-5 words stressed for impact>"]
+    },
+    "audienceAddressing": {
+      "primary": "<real word used: Dosto | Guys | Friends | Aap log | Investors | Founders | Bhai | Viewers | none>",
+      "alternatives": ["<2-3 other forms used>"],
+      "frequency": "<one of: none | low | medium | high>"
+    },
+    "storytellingPattern": {
+      "opening": "<one of: cold-open-story | shocking-stat | question | bold-claim | myth-bust | personal-anecdote>",
+      "exampleIntroduction": "<one-line description>",
+      "keyIdeaRepetition": "<one-line description of how main points get repeated>",
+      "conclusionStyle": "<one-line description>",
+      "ctaStyle": "<one-line description>"
+    },
+    "speakingPersona": "<one of: teacher | advisor | friend | mentor | consultant | journalist | storyteller | coach>"
+  },
+
   "styleExamples": {
     "hookExamples": ["<2-3 representative hook snippets, 15-35 words each. If synthesized from titles, append (synthesized)>"],
     "openingExamples": ["<2-3 representative opening lines or patterns>"],
@@ -2197,10 +2380,13 @@ Return ONLY valid JSON (no markdown fences). Shape:
 RULES:
 - Every 0-1 numeric score must be a number, not a string.
 - speechDNA must ALWAYS be present. Infer values statistically from the corpus. If working from titles-only, mark high-uncertainty fields with a "~" prefix in string values (e.g. "~medium") to signal lower confidence.
+- speakingStyle must ALWAYS be present. Mark \`_speechDataConfidence\` honestly. When real spoken content is unavailable, set uncertain numeric fields to \`null\` and return empty arrays for conversationalFillers / transitions / audienceAddressing.alternatives — do NOT invent observed data.
+- speakingStyle.emotionalCurve must list at least 3 beats in performance order (Hook … CTA).
 - styleExamples: extract SHORT snippets (15-40 words max). If no actual spoken content is available, synthesize plausible examples and append "(synthesized)". These are patterns to IMITATE STRUCTURALLY — not sentences to copy.
 - styleConfidence must be calibrated honestly: titles-only = low, descriptions = medium, transcripts = high. Add bonuses for video count and consistency.
 - All legacy fields (summary, languageMix, vocabulary, hookStyle, ctaStyle, retentionTechniques, thumbnailStyle, writingTone, estimatedAudience) must remain present — new schema is a strict superset.
-- Do not invent facts. Use null only for fields that are genuinely unknowable from the available data.`
+- Do not invent facts. Use null only for fields that are genuinely unknowable from the available data.
+- Do not hardcode any creator. Every speakingStyle value must trace back to evidence in the corpus.`
 
     const userPrompt = `CHANNEL
   Title: ${channel.title || '(unknown)'}
@@ -2275,58 +2461,122 @@ Build the complete Creator DNA Profile now. Be analytical, specific, and honest 
       .map(([k, v]) => `  ${k}: ${v}`)
       .join('\n')
 
-    const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a video script that sounds like this specific creator actually wrote and spoke it — not like an AI assistant wrote it about the topic.
+    // ── speakingStyle block (Speech Engine 2.0) ───────────────────────────
+    // Renders the structured speakingStyle object as a readable block. The
+    // generator's SPEECH-FIRST RULES reference these fields by name.
+    const speakingStyle = creatorStyle.speakingStyle || null
+    const speakingStyleBlock = !speakingStyle
+      ? null
+      : [
+          `  _speechDataConfidence: ${speakingStyle._speechDataConfidence || 'unknown'}`,
+          `  Speaking Persona: ${speakingStyle.speakingPersona || 'unknown'}`,
+          spokenLanguageBlock(speakingStyle.spokenLanguage),
+          rhythmBlock(speakingStyle.rhythm),
+          pauseStyleBlock(speakingStyle.pauseStyle),
+          sentenceConstructionBlock(speakingStyle.sentenceConstruction),
+          fillersBlock(speakingStyle.conversationalFillers),
+          transitionsBlock(speakingStyle.transitions),
+          emotionalCurveBlock(speakingStyle.emotionalCurve),
+          authorityBehaviourBlock(speakingStyle.authorityBehaviour),
+          vocabularyBehaviourBlock(speakingStyle.vocabularyBehaviour),
+          audienceAddressingBlock(speakingStyle.audienceAddressing),
+          storytellingBlock(speakingStyle.storytellingPattern),
+        ].filter(Boolean).join('\n')
 
-You have been given a Creator DNA Profile containing everything learned about how this creator thinks, speaks, teaches, persuades, and structures content.
+    const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a video script that sounds like this specific creator actually spoke it on camera — a fresh transcript, not a polished article.
+
+You have been given a Creator DNA Profile containing everything learned about how this creator thinks, speaks, teaches, persuades, and structures content — including a structured \`speakingStyle\` block that captures their spoken-language identity, rhythm, pauses, fillers, transitions, and audience-addressing style.
+
+═══════════════════════════════════════════════════════
+SPEECH-FIRST RULES (override every other instruction on conflict)
+═══════════════════════════════════════════════════════
+
+You are transcribing a brand-new video from this creator. NOT writing an article. The output must read like spoken dialogue, not prose.
+
+FORMAT:
+- Each spoken beat = 1-3 sentences maximum, then a paragraph break (\\n\\n).
+- NEVER write a paragraph longer than 4 sentences.
+- Use natural pauses: "..." for a dramatic pause, "\\n\\n" for a beat break, "—" for an interruption.
+- Sentence fragments are GOOD. ("Simple." is a complete spoken beat.)
+- Incomplete thoughts are GOOD. Repetition for emphasis is GOOD. ("Simple. Bahut simple.")
+- Vary beat length — some single-word beats, some 3-sentence teaching beats.
+
+LANGUAGE & CODE-SWITCHING:
+- Match the creator's spokenLanguage mix EXACTLY. If they say "Aaj hum baat karenge mutual funds ke baare mein", you write that — NOT "Today we will discuss mutual funds."
+- Code-switch at the same locations the creator does (within-sentence / between-sentence, per speakingStyle.spokenLanguage.codeSwitchLocation).
+- Preserve technical words in English if the creator does (speakingStyle.spokenLanguage.technicalWordsInEnglish).
+- Use native connectors naturally (aur, lekin, matlab, kyunki, etc.) — never translate them away.
+
+FILLERS & ADDRESSING (use sparingly, never force):
+- Weave in 2-4 of the observed conversationalFillers at natural conversational points.
+- Do NOT use all of them. Do NOT use any single filler more than once every ~80 words.
+- Address the audience using the observed audienceAddressing.primary form at least once. Use alternatives if the script is long.
+- Use transitions.topicChange / exampleIntro phrases where the creator would.
+
+EMOTIONAL CURVE:
+- Follow speakingStyle.emotionalCurve as the progression of the script. Each beat should land on the next intended emotion.
+
+ANTI-PATTERNS (NEVER DO THESE — instant failure):
+- "In today's video, we will explore..." → instead open with the learned opening phrase
+- Long grammatical compound sentences with multiple "and" / "which" clauses
+- Essay transitions: "Furthermore...", "Additionally...", "In conclusion...", "Moreover..."
+- Bullet points or numbered lists inside spoken text
+- "Hope you enjoyed this video" / "Thanks for watching" closings
+- Generic "like and subscribe" CTAs
+- Translating observed Hinglish/Hindi/etc. into clean English
+
+These rules are non-negotiable. A script that reads like an article is a failure even if every other signal matches.
 
 ═══════════════════════════════════════════════════════
 STEP 1 — BUILD YOUR CREATOR VOICE CHECKLIST (internal)
 ═══════════════════════════════════════════════════════
 
-Before writing a single word of the script, internally construct a Creator Voice Checklist from the DNA profile. For example:
+Before writing a single word, internally construct a Creator Voice Checklist from the DNA profile. Pull from BOTH the legacy fields AND the speakingStyle block:
 
   ✓ Opens with: [learned openingFormula]
-  ✓ Question frequency: every ~[derived from questionDensity] sentences
-  ✓ Sentence rhythm: [averageSentenceLength] — mix short punchy lines with occasional longer explanations
-  ✓ Authority style: cite [authorityStyle] naturally where relevant
-  ✓ Transition phrases: use [favoriteTransitions]
-  ✓ Signature words: weave in [signatureWords] naturally — never force them
+  ✓ Speaking persona: [speakingStyle.speakingPersona]
+  ✓ Audience addressing: [speakingStyle.audienceAddressing.primary] — use at least once
+  ✓ Conversational fillers: 2-4 from [speakingStyle.conversationalFillers], paced naturally
+  ✓ Language mix: [speakingStyle.spokenLanguage] ratios — match exactly
+  ✓ Code-switch points: [codeSwitchLocation] — switch at the same locations
+  ✓ Native connectors: [nativeConnectors] — never translate away
+  ✓ Sentence rhythm: target ~[rhythm.averageSentenceLengthWords] words per sentence
+  ✓ Pause style: [pauseStyle.marker] — use [pauseStyle.examples] as templates
+  ✓ Beat structure: 1-3 sentences per paragraph, [sentenceConstruction.fragmentFrequency] fragments OK
+  ✓ Transitions: use [transitions.topicChange] / [transitions.exampleIntro] where natural
+  ✓ Emotional curve: follow [emotionalCurve] progression
+  ✓ Authority style: cite [authorityBehaviour.primary] naturally
   ✓ CTA formula: close with [ctaFormula pattern]
-  ✓ Language mix: [languageMix] — Hindi/English switch at [englishHindiSwitchFrequency]
+  ✓ Signature words / phrases: weave in [vocabulary.signaturePhrases] / [vocabularyBehaviour.signaturePhrases]
   ✓ Psychological triggers: activate [psychologicalTriggers] at natural points
   ✓ Story structure: follow [storyStructure] for body sections
-  ✓ Humor level: [humorLevel] — use or avoid accordingly
-  ✓ Evidence pattern: support claims with [evidenceStyle]
-  ✓ Pacing: [pacingStyle] — match [shortVsLongSentenceRatio]
-  ✓ Analogy frequency: [analogyFrequency]
-  ✓ Curiosity loops: [curiosityLoops] — plant and resolve throughout
 
-Adapt this checklist to whatever signals are in the actual profile provided.
+Adapt this checklist to whatever signals are in the actual profile provided. When speakingStyle fields are null or _speechDataConfidence is "packaging-inferred", apply the speech patterns conservatively — still prefer short beats and fragments over article-style prose, but do not invent specific filler words.
 
 ═══════════════════════════════════════════════════════
 STEP 2 — STUDY THE STYLE EXAMPLES
 ═══════════════════════════════════════════════════════
 
-Study the styleExamples to understand the creator's rhythm, pacing, vocabulary, sentence construction, and tone.
+Study the styleExamples to internalize the creator's rhythm, pacing, vocabulary, sentence construction, and tone.
 
 CRITICAL RULES for examples:
 - DO NOT copy any example verbatim
 - DO NOT paraphrase examples
 - USE them only to understand the STRUCTURAL PATTERN, CADENCE, and VOCABULARY STYLE
-- Generate entirely original sentences that feel like the same creator
+- Generate entirely original sentences that feel like the same creator speaking
 
 ═══════════════════════════════════════════════════════
 STEP 3 — WRITE THE SCRIPT
 ═══════════════════════════════════════════════════════
 
-Write the script satisfying your Creator Voice Checklist from Step 1.
+Write the script satisfying your Creator Voice Checklist from Step 1, following the SPEECH-FIRST RULES above.
 
 Return ONLY valid JSON (no markdown fences). Shape:
 {
   "title": "<final CTR-optimized title under 70 chars, in the creator's exact title style>",
-  "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max.>",
-  "fullScript": "<the complete spoken script. Use \\n\\n for paragraph breaks. Write as actual spoken sentences, not bullets. Minimum 500 words. Every paragraph must feel like this specific creator. Match sentence rhythm, vocabulary density, authority style, humor level, and pacing.>",
-  "cta": "<end-of-video call to action. Must match the learned ctaFormula — not a generic 'like and subscribe'.>",
+  "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max. May include a pause marker or fragment if the creator opens that way.>",
+  "fullScript": "<the complete spoken script, formatted as natural speech. Each paragraph = one spoken beat (1-3 sentences). Use \\n\\n between beats. Use '...' for dramatic pauses where pauseStyle.marker suggests it. Use the creator's exact language mix and code-switching pattern. Use observed fillers sparingly (2-4 total). Use sentence fragments where the creator would. Follow the emotionalCurve progression. Target 400-900 words; prioritize SPEECH FEEL over length — never pad to hit a word count.>",
+  "cta": "<end-of-video call to action. Must match the learned ctaFormula and speakingStyle.storytellingPattern.ctaStyle — never generic.>",
   "description": "<YouTube video description in the creator's voice, 100-300 words. Start with a punchy hook line, then context. Match vocabulary and tone.>",
   "hashtags": [<8-15 relevant hashtags, no # prefix>],
   "styleMatch": {
@@ -2349,27 +2599,43 @@ Return ONLY valid JSON (no markdown fences). Shape:
 }
 
 ═══════════════════════════════════════════════════════
-STEP 4 — SELF-VERIFY (before returning)
+STEP 4 — SPEECH SELF-VERIFICATION (mandatory)
 ═══════════════════════════════════════════════════════
 
-Before outputting the final JSON, silently verify your Creator Voice Checklist from Step 1:
+Before outputting the final JSON, read the fullScript aloud in your head at the creator's natural speaking pace and answer this question honestly:
+
+  "Would someone who watches this creator immediately believe this came from a real video of theirs?"
+
+If NO — for ANY of these reasons — silently REWRITE the script before returning:
+- It sounds like an article, blog post, or essay
+- Any paragraph is longer than 4 sentences
+- No natural pauses ("..." or paragraph breaks), no fragments, no repetition
+- Language is too polished, formal, or textbook
+- Code-switching doesn't match the creator's pattern (no Hinglish/Hindi/etc. where they would use it)
+- No conversational fillers used anywhere (or every filler used, which is just as bad)
+- No audience addressing in a script longer than 200 words
+- Opens with "In today's video..." / "Welcome back..." / "In this video..." or similar generic framing
+- Closes with "Thanks for watching" / "Hope you enjoyed" generic closings
+
+Also verify the original checklist:
 - Did the hook use the learned openingFormula?
-- Does the body follow the learned storyStructure?
-- Are signature words and transitions present naturally?
+- Does the body follow the learned storyStructure and emotionalCurve?
+- Are signature words / phrases / transitions present naturally?
 - Is the CTA an authentic learned formula (not generic)?
-- Does the sentence rhythm match the learned pacingStyle?
-- Are authority references/evidence used as the creator would?
-- Is the language mix accurate?
+- Does the sentence rhythm match the learned pacingStyle and averageSentenceLengthWords?
+- Are authority references / evidence used as the creator would?
+- Is the language mix accurate ( Ratios in speakingStyle.spokenLanguage )?
 - Are psychological triggers activated at natural points?
 
-If any checklist item is not satisfied, revise that section before returning.
+If ANY checklist item is missing or ANY anti-pattern is present, revise the script before returning. A script that fails the speech check is a failure even if all other scores are high.
 
 FINAL RULES:
-- styleMatch scores MUST be numbers 0-100. Score honestly — the score represents how closely this script matches the creator's actual style.
+- styleMatch scores MUST be numbers 0-100. Score honestly — the score represents how closely this script matches the creator's actual speaking style. A script that reads like an article should score low on speechRhythm and sentenceStyle even if vocabulary and CTA match.
 - ${confidenceInstruction}
 - ${modeInstruction}
-- All content must be specific to the recommended concept. Zero placeholders, zero filler.
-- The fullScript must read like it was spoken, not written. Short punchy sentences where the creator uses them. Longer explanations where the creator would teach.`
+- All content must be specific to the recommended concept. Zero placeholders, zero filler — conversationalFillers are the only allowed "filler" and they must come from the profile.
+- The fullScript must read like it was SPOKEN on camera, not written for a reader. Short punchy beats where the creator uses them. Fragments. Pauses. Repetition. The creator's exact language mix.`
+
 
     const userPrompt = `═══ CREATOR DNA PROFILE ═══
 
@@ -2386,6 +2652,9 @@ SPEECH ARCHITECTURE
   Story Structure: ${JSON.stringify(creatorStyle.storyStructure || [])}
   Signature Patterns: ${JSON.stringify(creatorStyle.signaturePatterns || [])}
   CTA Formula: ${JSON.stringify(creatorStyle.ctaFormula || [])}
+
+═══ SPEAKING STYLE (HIGHEST PRIORITY — apply these aggressively) ═══
+${speakingStyleBlock || '  (no speakingStyle block — apply SPEECH-FIRST RULES conservatively)'}
 
 VOICE DNA
 ${dnaBlock || '  (no speechDNA — working from legacy profile)'}
