@@ -35,7 +35,10 @@ const creatorStyleProfileSchema = new mongoose.Schema({
 //
 //   v1 — original extraction (writing-style signals)
 //   v2 — Speech Engine 2.0: structured `speakingStyle` block (12 dimensions)
-creatorStyleProfileSchema.statics.CURRENT_PROFILE_VERSION = 2
+//   v3 — Speech Engine Round 2: real YouTube transcripts as Tier-1 corpus +
+//        four new speakingStyle dimensions (cameraFacingStyle, qaPatterns,
+//        repetitionPatterns, spokenGrammar)
+creatorStyleProfileSchema.statics.CURRENT_PROFILE_VERSION = 3
 
 creatorStyleProfileSchema.index({ workspaceId: 1, channelId: 1 }, { unique: true })
 

@@ -100,6 +100,7 @@ export async function fetchChannelDetails(channelId) {
     profileImage: sn.thumbnails?.high?.url || sn.thumbnails?.default?.url,
     banner: br?.bannerExternalUrl || null,
     description: sn.description,
+    country: sn.country || item.brandingSettings?.channel?.country || null,
     subscribers: Number(s.subscriberCount) || 0,
     totalViews: Number(s.viewCount) || 0,
     totalVideos: Number(s.videoCount) || 0,

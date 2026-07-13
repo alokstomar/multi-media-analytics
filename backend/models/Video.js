@@ -9,6 +9,12 @@ const videoSchema = new mongoose.Schema({
   views: { type: Number, default: 0 },
   likes: { type: Number, default: 0 },
   comments: { type: Number, default: 0 },
+  // Speech corpus for Creator DNA analysis. Populated lazily by
+  // transcriptService.ensureTranscriptsForVideos on first analyzeCreatorStyle
+  // cold build. transcriptFetchedAt drives a 14-day soft refresh window.
+  transcript: { type: String, default: null },
+  transcriptSource: { type: String, default: null, enum: [null, 'manual', 'auto', 'unknown'] },
+  transcriptFetchedAt: { type: Date, default: null },
 }, {
   timestamps: true,
 })

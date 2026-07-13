@@ -121,8 +121,13 @@ function makeCacheKey(method, params) {
 // ── Safely parse JSON from GPT response, with fallback ──────────────────
 function parseJSON(text) {
   try {
+    let cleaned = text
+    // Strip scratchpad blocks the model sometimes leaves in the response
+    // (Speech Engine Round 2: STEP 3 instructs a <scratchpad> block that
+    // should be discarded — defensive strip in case the model didn't.)
+    cleaned = cleaned.replace(/<scratchpad>[\s\S]*?<\/scratchpad>\s*/gi, '')
     // Strip markdown fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
     return JSON.parse(cleaned)
   } catch {
     return null
@@ -503,6 +508,45 @@ function storytellingBlock(s) {
     key-idea repetition: ${s.keyIdeaRepetition || 'unknown'}
     conclusion: ${s.conclusionStyle || 'unknown'}
     CTA: ${s.ctaStyle || 'unknown'}`
+}
+
+// ── Round 2 speakingStyle renderers ──────────────────────────────────────
+// Four new dimensions: how the creator talks TO the camera, their Q&A
+// templates, observed repetition patterns, and how their speech diverges
+// from written grammar.
+
+function cameraFacingBlock(c) {
+  if (!c || typeof c !== 'object') return null
+  const youLines = Array.isArray(c.youYourUsage) && c.youYourUsage.length > 0
+    ? c.youYourUsage.map((y) => `"${y.phrase}"@${y.context || '?'}`).join(', ')
+    : '(none observed)'
+  return `  Camera-facing style:
+    direct address frequency: ${c.directAddressFrequency || 'unknown'}
+    you/your/aap forms: ${youLines}
+    eye-contact phrasing: ${fmtList(c.eyeContactPhrasing)}
+    camera-pointing gestures: ${fmtList(c.cameraPointingGestures)}
+    self-reference: ${c.selfReferenceStyle || 'unknown'}`
+}
+
+function qaPatternsBlock(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '  Q&A patterns: (none observed — skip self-Q&A beats)'
+  const items = arr.map((q) => `Q:"${q.question}" → A:"${q.answer}" (${q.frequency || '?'} @ ${q.position || '?'})`).join(' ; ')
+  return `  Q&A patterns (deploy 1-2 with the creator's template shape): ${items}`
+}
+
+function repetitionPatternsBlock(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return '  Repetition patterns: (none observed — do not invent repetition)'
+  const items = arr.map((r) => `"${r.instance}" [rule: ${r.rule || '?'} / purpose: ${r.purpose || '?'}]`).join(' ; ')
+  return `  Repetition patterns (apply each RULE once with original wording — do not copy the instance verbatim): ${items}`
+}
+
+function spokenGrammarBlock(s) {
+  if (!s || typeof s !== 'object') return null
+  return `  Spoken grammar (apply EVERY divergence rule below — these are permissions to break written grammar):
+    dropped subjects: ${s.droppedSubjects || 'unknown'} | dropped articles: ${s.droppedArticles || 'unknown'} | tense mixing: ${s.tenseMixing || 'unknown'}
+    conjunction fronting: ${fmtList(s.conjunctionFronting)}
+    sentence-starting patterns: ${fmtList(s.sentenceStartingPatterns)}
+    divergence examples: ${fmtList(s.divergenceExamples)}`
 }
 
 function fmtRatio(n) {
@@ -2112,10 +2156,27 @@ Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, vi
     const channel = ctx.channel || {}
     const videos = Array.isArray(ctx.videos) ? ctx.videos : []
 
-    const topVideos = videos.slice(0, 15)
+    let topVideos = videos.slice(0, 15)
+
+    // ── Tier 0: ensure transcripts are cached for the corpus ────────────
+    // Non-fatal. If this fails (no captions, package unavailable, network),
+    // extraction falls through to titles + descriptions with calibrated
+    // _speechDataConfidence. 14-day soft refresh window per video.
+    try {
+      const { ensureTranscriptsForVideos } = await import('../../services/transcriptService.js')
+      await ensureTranscriptsForVideos(topVideos, { concurrency: 4 })
+      const Video = (await import('../../models/Video.js')).default
+      const fresh = await Video.find({
+        videoId: { $in: topVideos.map((v) => v.videoId).filter(Boolean) },
+      }).lean()
+      const byId = new Map(fresh.map((v) => [v.videoId, v]))
+      topVideos = topVideos.map((v) => ({ ...v, ...(byId.get(v.videoId) || {}) }))
+    } catch (err) {
+      console.warn('[CreatorDNA] Transcript prefetch failed (non-fatal):', err?.message || err)
+    }
 
     // ── Build content corpus (priority-ordered) ───────────────────────────
-    // Tier 1: transcripts (future-compatible — picked up automatically when present)
+    // Tier 1: transcripts (now populated by Tier 0 above)
     const transcriptLines = []
     for (const v of topVideos) {
       if (v.transcript && typeof v.transcript === 'string' && v.transcript.trim()) {
@@ -2346,7 +2407,43 @@ Return ONLY valid JSON (no markdown fences). Shape:
       "conclusionStyle": "<one-line description>",
       "ctaStyle": "<one-line description>"
     },
-    "speakingPersona": "<one of: teacher | advisor | friend | mentor | consultant | journalist | storyteller | coach>"
+    "speakingPersona": "<one of: teacher | advisor | friend | mentor | consultant | journalist | storyteller | coach>",
+
+    "cameraFacingStyle": {
+      "directAddressFrequency": "<one of: none | low | medium | high — how often the creator speaks directly TO the viewer vs. about the topic>",
+      "youYourUsage": [
+        { "phrase": "<verbatim 'you' / 'your' / 'aap' / 'tum' / 'tumhara' form observed in transcript>", "context": "<one of: hook | teaching | caution | cta>" }
+      ],
+      "eyeContactPhrasing": ["<2-4 verbatim lines where the creator speaks directly TO the viewer, e.g. 'Dekho...', 'Sun-na...', 'Let me ask you something.'>"],
+      "cameraPointingGestures": ["<1-3 verbatim 'look at this' / 'dekho yahan' / 'notice this' style lines if observed, else []>"],
+      "selfReferenceStyle": "<one of: first-person-singular 'main' | first-person-plural 'hum' | third-person 'your teacher' | mixed | none>"
+    },
+
+    "qaPatterns": [
+      {
+        "question": "<verbatim question observed in transcript, e.g. 'Kyunki yeh zaroori kyun hai?' | 'So why does this matter?' | 'Aap soch rahe hain yeh kaise?'>",
+        "answer": "<verbatim answer or answer-opening observed, e.g. 'Because...' | 'Dekhiye...' | 'Iska jawab hai...'>",
+        "position": "<one of: hook | explanation | example | transition | punchline>",
+        "frequency": "<one of: rare | occasional | frequent>"
+      }
+    ],
+
+    "repetitionPatterns": [
+      {
+        "instance": "<verbatim repetition observed, e.g. 'Simple. Bahut simple.' | 'Socho. Ek minute socho.' | 'Yeh important hai. Bahut important.'>",
+        "rule": "<one-line description of the pattern this demonstrates, e.g. 'short-declarative-then-amplifier' | 'imperative-then-pause-then-reinforcement'>",
+        "purpose": "<one of: emphasis | memorability | dramatic-effect | structural-marker>"
+      }
+    ],
+
+    "spokenGrammar": {
+      "droppedSubjects": "<one of: never | occasionally | frequently — does the creator drop 'main'/'I'/'we' when context is clear?>",
+      "droppedArticles": "<one of: never | occasionally | frequently>",
+      "tenseMixing": "<one of: never | occasionally | frequently — does the creator mix past/present in the same beat?>",
+      "conjunctionFronting": ["<2-3 verbatim examples if observed, e.g. 'Lekin...', 'Kyunki...', 'Aur yahan...', 'Because...'>"],
+      "sentenceStartingPatterns": ["<3-5 verbatim patterns of how beats BEGIN, since spoken language recycles openers heavily>"],
+      "divergenceExamples": ["<2-4 short verbatim snippets where this creator's speech is grammatically non-standard in a way writing would correct>"]
+    }
   },
 
   "styleExamples": {
@@ -2382,6 +2479,7 @@ RULES:
 - speechDNA must ALWAYS be present. Infer values statistically from the corpus. If working from titles-only, mark high-uncertainty fields with a "~" prefix in string values (e.g. "~medium") to signal lower confidence.
 - speakingStyle must ALWAYS be present. Mark \`_speechDataConfidence\` honestly. When real spoken content is unavailable, set uncertain numeric fields to \`null\` and return empty arrays for conversationalFillers / transitions / audienceAddressing.alternatives — do NOT invent observed data.
 - speakingStyle.emotionalCurve must list at least 3 beats in performance order (Hook … CTA).
+- speakingStyle.cameraFacingStyle / qaPatterns / repetitionPatterns / spokenGrammar MUST be null (or all-arrays-empty + frequency fields "unknown") when \`_speechDataConfidence\` is "packaging-inferred". When real transcripts are available, these four blocks MUST be populated with verbatim observed quotes — never synthesize from titles or descriptions. These are the highest-signal dimensions for camera-facing delivery, so populate them carefully from transcript evidence.
 - styleExamples: extract SHORT snippets (15-40 words max). If no actual spoken content is available, synthesize plausible examples and append "(synthesized)". These are patterns to IMITATE STRUCTURALLY — not sentences to copy.
 - styleConfidence must be calibrated honestly: titles-only = low, descriptions = medium, transcripts = high. Add bonuses for video count and consistency.
 - All legacy fields (summary, languageMix, vocabulary, hookStyle, ctaStyle, retentionTechniques, thumbnailStyle, writingTone, estimatedAudience) must remain present — new schema is a strict superset.
@@ -2404,7 +2502,7 @@ Build the complete Creator DNA Profile now. Be analytical, specific, and honest 
 
     return this._execute(
       'analyzeCreatorStyle',
-      { channelId, dataSource: dataSourceLabel, videoCount: topVideos.length },
+      { channelId, dataSource: dataSourceLabel, videoCount: topVideos.length, _profileVersion: 3 },
       systemPrompt,
       userPrompt,
       { temperature: 0.4 },
@@ -2481,6 +2579,10 @@ Build the complete Creator DNA Profile now. Be analytical, specific, and honest 
           vocabularyBehaviourBlock(speakingStyle.vocabularyBehaviour),
           audienceAddressingBlock(speakingStyle.audienceAddressing),
           storytellingBlock(speakingStyle.storytellingPattern),
+          cameraFacingBlock(speakingStyle.cameraFacingStyle),
+          qaPatternsBlock(speakingStyle.qaPatterns),
+          repetitionPatternsBlock(speakingStyle.repetitionPatterns),
+          spokenGrammarBlock(speakingStyle.spokenGrammar),
         ].filter(Boolean).join('\n')
 
     const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a video script that sounds like this specific creator actually spoke it on camera — a fresh transcript, not a polished article.
@@ -2550,6 +2652,10 @@ Before writing a single word, internally construct a Creator Voice Checklist fro
   ✓ Signature words / phrases: weave in [vocabulary.signaturePhrases] / [vocabularyBehaviour.signaturePhrases]
   ✓ Psychological triggers: activate [psychologicalTriggers] at natural points
   ✓ Story structure: follow [storyStructure] for body sections
+  ✓ Camera-facing: use [speakingStyle.cameraFacingStyle.youYourUsage] forms naturally; deploy [cameraFacingStyle.eyeContactPhrasing] at least once if observed
+  ✓ Q&A patterns: deploy 1-2 of the observed [speakingStyle.qaPatterns] at natural points — same question shape, original wording
+  ✓ Repetition patterns: apply each [speakingStyle.repetitionPatterns.rule] ONCE with original wording (do not copy the instance verbatim)
+  ✓ Spoken grammar: apply EVERY [speakingStyle.spokenGrammar] divergence rule (dropped subjects, dropped articles, conjunction fronting, tense mixing) — these are permissions to break written-grammar rules
 
 Adapt this checklist to whatever signals are in the actual profile provided. When speakingStyle fields are null or _speechDataConfidence is "packaging-inferred", apply the speech patterns conservatively — still prefer short beats and fragments over article-style prose, but do not invent specific filler words.
 
@@ -2566,12 +2672,51 @@ CRITICAL RULES for examples:
 - Generate entirely original sentences that feel like the same creator speaking
 
 ═══════════════════════════════════════════════════════
-STEP 3 — WRITE THE SCRIPT
+STEP 3 — DRAFT IN WRITER MODE (mandatory, in scratchpad)
 ═══════════════════════════════════════════════════════
 
-Write the script satisfying your Creator Voice Checklist from Step 1, following the SPEECH-FIRST RULES above.
+Inside a <scratchpad>...</scratchpad> block (which comes BEFORE your final JSON output), write a FIRST DRAFT of the script as you would naturally write it for an article-style explainer on this topic. Use proper grammar, full sentences, paragraph flow. ~400-700 words.
 
-Return ONLY valid JSON (no markdown fences). Shape:
+This draft is for YOU to transform in Step 4. It will not be shown to the user. Be thorough — cover every section of the storyStructure, work through the recommendation content, and get the substance right.
+
+DO NOT skip the scratchpad. The transformation step in Step 4 needs source material to work on. A scratchpad-less output is a guaranteed failure.
+
+═══════════════════════════════════════════════════════
+STEP 4 — TRANSCRIPTIONIST'S HEADPHONES (the transformation)
+═══════════════════════════════════════════════════════
+
+Now switch roles. You are no longer the writer. You are a transcriptionist wearing headphones, listening to a recording of THIS SPECIFIC CREATOR reading your Step 3 draft aloud on camera. They are not reading it verbatim — they are SPEAKING it, the way they actually speak on camera. Your job is to transcribe what you hear.
+
+A transcriptionist does not "polish" or "improve" what they hear. A transcriptionist captures:
+- Sentence fragments (the creator trails off, then restarts)
+- Repetitions for emphasis ("Simple. Bahut simple.")
+- Pause markers (... and em-dashes where they pause or interrupt themselves)
+- Dropped subjects, dropped articles ("Went to the store yesterday" — not "I went to the store yesterday")
+- Code-switching at the EXACT points this creator switches languages
+- Fillers where they actually occur ("Dekhiye...", "Matlab...", "Right?")
+- Self-asked Q&A patterns where the creator asks then answers themselves
+- Direct address to camera ("Aap dekho...", "Let me show you...")
+- Conjunction-fronting ("Lekin...", "Kyunki...", "Because..." starting a beat)
+
+Transform your Step 3 draft into a transcription of THIS CREATOR speaking it aloud. Concretely:
+- Apply speakingStyle.cameraFacingStyle — direct address patterns, you/your/aap usage
+- Insert 1-2 self-Q&A beats using the SHAPE of observed speakingStyle.qaPatterns (not verbatim — original question + answer with the same structural template)
+- Apply each speakingStyle.repetitionPatterns RULE once with original wording (not the verbatim instance)
+- Apply EVERY speakingStyle.spokenGrammar divergence rule — drop subjects where they drop them, front conjunctions where they front them, mix tenses where they mix them
+- Apply the existing rhythm / fillers / transitions / pause / audience-addressing signals from the profile
+- Beat-structure: each paragraph is 1-3 spoken sentences, then \\n\\n. NEVER longer than 4 sentences in one beat.
+
+The output of Step 4 goes into the JSON \`fullScript\` field. NOT the Step 3 draft.
+
+If your Step 4 output reads like polished prose, you have FAILED. Re-transcribe until it sounds like the creator actually spoke it.
+
+═══════════════════════════════════════════════════════
+STEP 5 — WRITE THE SCRIPT (final output)
+═══════════════════════════════════════════════════════
+
+The fullScript in your JSON output is the Step 4 transcription. Build the final JSON shape satisfying your Creator Voice Checklist from Step 1, with the SPEECH-FIRST RULES fully applied.
+
+Return ONLY valid JSON (no markdown fences). The scratchpad block must come BEFORE the JSON opening brace. Shape:
 {
   "title": "<final CTR-optimized title under 70 chars, in the creator's exact title style>",
   "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max. May include a pause marker or fragment if the creator opens that way.>",
@@ -2599,12 +2744,12 @@ Return ONLY valid JSON (no markdown fences). Shape:
 }
 
 ═══════════════════════════════════════════════════════
-STEP 4 — SPEECH SELF-VERIFICATION (mandatory)
+STEP 6 — SPEECH SELF-VERIFICATION (mandatory)
 ═══════════════════════════════════════════════════════
 
 Before outputting the final JSON, read the fullScript aloud in your head at the creator's natural speaking pace and answer this question honestly:
 
-  "Would someone who watches this creator immediately believe this came from a real video of theirs?"
+  "If this were converted to speech with the creator's own voice, would existing subscribers believe this creator actually recorded it?"
 
 If NO — for ANY of these reasons — silently REWRITE the script before returning:
 - It sounds like an article, blog post, or essay
@@ -2616,6 +2761,10 @@ If NO — for ANY of these reasons — silently REWRITE the script before return
 - No audience addressing in a script longer than 200 words
 - Opens with "In today's video..." / "Welcome back..." / "In this video..." or similar generic framing
 - Closes with "Thanks for watching" / "Hope you enjoyed" generic closings
+- No use of any observed qaPatterns when they were provided (script should contain 1-2 self-asked questions using the creator's templates — skip this check only if qaPatterns was null/empty in the profile)
+- No repetition-for-emphasis anywhere when the creator uses it (reproduce a repetitionPatterns RULE at least once — skip this check only if repetitionPatterns was null/empty)
+- Direct address to camera missing when cameraFacingStyle.directAddressFrequency is non-"none" (the script should contain "you/your/aap" forms — skip this check only if cameraFacingStyle was null)
+- Spoken-grammar divergences missing when spokenGrammar.droppedSubjects / droppedArticles / conjunctionFronting are non-"never" / non-empty (if every sentence is grammatically complete and prose-perfect, you have over-polished)
 
 Also verify the original checklist:
 - Did the hook use the learned openingFormula?
@@ -2701,13 +2850,14 @@ ${topVideos.length
 
 MODE: ${mode}
 
-Now follow Steps 1–4. Build the Voice Checklist, study the examples, write the script, verify against the checklist.`
+Now follow Steps 1–6. Build the Voice Checklist, study the examples, draft in writer mode inside the scratchpad, transform via the transcriptionist's headphones, write the final output, verify against the checklist.`
 
     const cacheParams = {
       channelId,
       ideaId: recommendation.id,
       ideaTitle: recommendation.title,
       mode,
+      _styleProfileVersion: ctx.styleProfileVersion || 1,
     }
     if (ctx.regenerate) {
       cacheParams.regenAt = ctx.regenAt || Date.now()

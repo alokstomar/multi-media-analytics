@@ -187,6 +187,7 @@ export async function generateStyledScriptController(req, res, next) {
         videos,
         recommendation,
         creatorStyle: creatorStyleDoc.profile,
+        styleProfileVersion: creatorStyleDoc.profileVersion || 1,
         mode,
         regenerate,
         regenAt: regenerate ? Date.now() : undefined,
