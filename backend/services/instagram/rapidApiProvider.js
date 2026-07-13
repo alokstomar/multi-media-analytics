@@ -523,8 +523,14 @@ export default class RapidApiProvider extends InstagramProvider {
     let cursorType = null
     let pagesFetched = 0
 
+    // Instagram media IDs returned by the /reels endpoint are compound strings
+    // in the form "<mediaId>_<userId>" (e.g. "3940192134391524486_59856346363").
+    // The /comments endpoint only accepts the pure numeric mediaId prefix.
+    // Sending the full compound form returns HTTP 400.
+    const mediaId = String(reelId).split('_')[0]
+
     while (pagesFetched < this.maxPages) {
-      const params = { media_id: reelId }
+      const params = { media_id: mediaId }
       const nextParam = this._buildPaginationParam(cursor, cursorType)
       if (nextParam) params[nextParam.key] = nextParam.value
 

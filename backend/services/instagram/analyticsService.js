@@ -128,10 +128,17 @@ export const analyticsService = {
         { new: true, upsert: true }
       )
       savedReels.push(reel)
+    }
 
-      // 3. Sync comments for the top reels (e.g. limit to first 3 to prevent rate limits)
-      if (savedReels.length <= 3) {
-        const comments = await providerFactory.getProvider().getComments(item.reelId)
+    // 3. Sync comments for the top reels (limit to first 3 to reduce API usage).
+    //    Comments are OPTIONAL — any failure is logged as a warning and does NOT
+    //    abort the sync or set syncStatus="error". Profile, reels, and analytics
+    //    always complete regardless of comments outcome.
+    const commentWarnings = []
+    for (let i = 0; i < Math.min(savedReels.length, 3); i++) {
+      const reelDoc = savedReels[i]
+      try {
+        const comments = await providerFactory.getProvider().getComments(reelDoc.reelId)
         for (const c of comments) {
           let sentiment = c.sentiment || 'neutral'
           const textLower = (c.text || '').toLowerCase()
@@ -144,7 +151,7 @@ export const analyticsService = {
           await InstagramComment.findOneAndUpdate(
             { commentId: c.commentId, workspaceId },
             {
-              reelId: item.reelId,
+              reelId: reelDoc.reelId,
               text: c.text,
               author: c.author,
               sentiment,
@@ -156,6 +163,11 @@ export const analyticsService = {
             { new: true, upsert: true }
           )
         }
+      } catch (commentErr) {
+        // Comments are optional — warn and continue; do not fail the sync.
+        const warning = `[AnalyticsService] Comments skipped for reel ${reelDoc.reelId} (@${username}): ${commentErr.message}`
+        console.warn(warning)
+        commentWarnings.push({ reelId: reelDoc.reelId, error: commentErr.message })
       }
     }
 
@@ -171,7 +183,8 @@ export const analyticsService = {
     return {
       profile,
       reelsCount: savedReels.length,
-      snapshot
+      snapshot,
+      ...(commentWarnings.length > 0 && { commentWarnings }),
     }
   },
 
