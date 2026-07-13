@@ -16,12 +16,18 @@ function isStale(profile) {
 
 async function runBackgroundSync(username, workspaceId) {
   try {
-    await analyticsService.syncAll(username, workspaceId)
+    const result = await analyticsService.syncAll(username, workspaceId)
     await InstagramProfile.findOneAndUpdate(
       { username, workspaceId },
       { syncStatus: 'ready', syncError: '' }
     )
     console.log(`[InstagramAccounts] background sync ready: @${username}`)
+    if (result.commentWarnings?.length) {
+      console.warn(
+        `[InstagramAccounts] @${username} synced with ${result.commentWarnings.length} comment warning(s):`,
+        result.commentWarnings.map((w) => `reel ${w.reelId}: ${w.error}`).join(' | ')
+      )
+    }
   } catch (err) {
     console.error(`[InstagramAccounts] background sync failed for @${username}:`, err.message)
     await InstagramProfile.findOneAndUpdate(
