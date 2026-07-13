@@ -35,5 +35,13 @@ export const providerFactory = {
    */
   resetProvider() {
     activeInstance = null
+  },
+
+  /**
+   * Get the active provider label
+   * @returns {string}
+   */
+  getProviderLabel() {
+    return (process.env.INSTAGRAM_PROVIDER || 'mock').toLowerCase()
   }
 }

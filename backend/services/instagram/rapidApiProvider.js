@@ -124,6 +124,7 @@ export default class RapidApiProvider extends InstagramProvider {
     this.apiKey = process.env.RAPIDAPI_KEY
     this.host = process.env.RAPIDAPI_HOST
     this.maxPages = parseInt(process.env.RAPIDAPI_MAX_PAGES || '50', 10)
+    this.userIdCache = new Map()
   }
 
   _isConfigured() {
@@ -170,6 +171,9 @@ export default class RapidApiProvider extends InstagramProvider {
   // headers, logs request/response when DEBUG_RAPIDAPI=true, and wraps axios
   // errors via _wrapError.
   async _httpGet(path, params, op) {
+    // Respect API rate limit: wait 1000ms before each HTTP request
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
     const url = new URL(`https://${this.host}${path}`)
     for (const [k, v] of Object.entries(params || {})) {
       if (v !== undefined && v !== null && v !== '') {
@@ -264,22 +268,31 @@ export default class RapidApiProvider extends InstagramProvider {
   // for getAnalytics). Throws descriptive error listing every candidate path
   // checked when nothing matches.
   async _resolveUserId(username) {
+    if (!username) return ''
+    const normalized = username.trim().toLowerCase()
+    if (this.userIdCache.has(normalized)) {
+      this._logDebug(`_resolveUserId hit cache for "${normalized}"`, { userId: this.userIdCache.get(normalized) })
+      return this.userIdCache.get(normalized)
+    }
+
     const body = await this._httpGet(
       '/user_id_by_username',
-      { username },
+      { username: normalized },
       'resolveUserId'
     )
     const userId = this._firstByPath(body, USER_ID_CANDIDATES)
     if (!this._hasValue(userId)) {
       throw new Error(
         `RapidApiProvider._resolveUserId: could not extract user_id from ` +
-        `/user_id_by_username response for username "${username}". ` +
+        `/user_id_by_username response for username "${normalized}". ` +
         `Checked candidate paths: ${USER_ID_CANDIDATES.join(', ')}. ` +
         `Enable DEBUG_RAPIDAPI=true to inspect the raw payload logged as ` +
         `"GET resolveUserId response".`
       )
     }
-    return String(userId)
+    const resolvedId = String(userId)
+    this.userIdCache.set(normalized, resolvedId)
+    return resolvedId
   }
 
   // ──────────────────────────────────────────────────────────────────────

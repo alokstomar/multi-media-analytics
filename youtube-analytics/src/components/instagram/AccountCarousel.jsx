@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus,
@@ -8,6 +8,7 @@ import {
   TrendingDown,
   AlertCircle,
   Loader2,
+  X,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
 
@@ -44,6 +45,199 @@ function CarouselSkeleton() {
         ))}
       </div>
     </div>
+  )
+}
+
+// ── Add Account Modal ──────────────────────────────────────────────────────
+function AddAccountModal({ open, onClose, onSubmit, submitting, error }) {
+  const [username, setUsername] = useState('')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (open) {
+      setUsername('')
+      setTimeout(() => inputRef.current?.focus(), 80)
+    }
+  }, [open])
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    const trimmed = username.trim().replace(/^@+/, '')
+    if (!trimmed) return
+    onSubmit(trimmed)
+  }
+
+  const handleKey = (e) => {
+    if (e.key === 'Escape') onClose()
+  }
+
+  if (!open) return null
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="add-modal-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      >
+        <motion.div
+          key="add-modal-panel"
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 12 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="relative w-full max-w-sm mx-4 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={handleKey}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 text-white">
+                {/* Instagram camera icon inline SVG */}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+                  <circle cx="12" cy="12" r="4"/>
+                  <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Add Instagram Account</p>
+                <p className="text-[11px] text-gray-500">Enter a public username to start tracking</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <form onSubmit={handleSubmit} className="px-5 py-5 space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                Instagram Username
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">@</span>
+                <input
+                  ref={inputRef}
+                  id="ig-add-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.replace(/^@+/, ''))}
+                  placeholder="username"
+                  disabled={submitting}
+                  className="w-full pl-7 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:bg-white focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none transition disabled:opacity-50"
+                />
+              </div>
+              {error && (
+                <p className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  {error}
+                </p>
+              )}
+            </div>
+
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              The account must be <strong className="text-gray-600">public</strong>. Analytics sync starts immediately and takes about 30 seconds.
+            </p>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                className="flex-1 py-2.5 text-xs font-semibold rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                id="ig-add-submit"
+                type="submit"
+                disabled={submitting || !username.trim()}
+                className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-purple-600 text-white hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Adding…
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Account
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+// ── Disconnect Confirm Modal ───────────────────────────────────────────────
+function DisconnectModal({ open, account, onClose, onConfirm }) {
+  if (!open || !account) return null
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="disc-modal-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      >
+        <motion.div
+          key="disc-modal-panel"
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 12 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="relative w-full max-w-sm mx-4 bg-white rounded-2xl shadow-2xl border border-gray-100 p-6"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100 text-red-600 shrink-0">
+              <Trash2 className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-900">Disconnect account?</p>
+              <p className="text-xs text-gray-500 mt-0.5">@{account.handle?.replace('@', '')}</p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mb-5">
+            Scheduled posts and queue dispatches will be suspended. You can re-add the account at any time.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 text-xs font-semibold rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              id="ig-disconnect-confirm"
+              onClick={onConfirm}
+              className="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-red-500 text-white hover:bg-red-600 transition"
+            >
+              Disconnect
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   )
 }
 
@@ -173,6 +367,7 @@ function EmptyState({ onConnect, connecting, error }) {
         </div>
       </div>
       <button
+        id="ig-add-account-empty"
         onClick={onConnect}
         disabled={connecting}
         className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm shrink-0"
@@ -195,8 +390,12 @@ export default function AccountCarousel() {
     loading,
   } = useInstagramAdapter()
 
+  const [showAddModal, setShowAddModal] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  const [error, setError] = useState('')
+  const [addError, setAddError] = useState('')
+
+  const [showDiscModal, setShowDiscModal] = useState(false)
+  const [pendingDisconnect, setPendingDisconnect] = useState(null)
 
   // Exclude generic demo/fallback placeholders — only show real connected accounts
   const realAccounts = accounts.filter(
@@ -209,15 +408,20 @@ export default function AccountCarousel() {
 
   const activeId = selectedAccount?.id
 
-  const handleConnect = async () => {
-    const username = window.prompt('Enter Instagram username to add (e.g. nike):')
-    if (!username || !username.trim()) return
+  // ── Add Account ───────────────────────────────────────────────────────
+  const openAddModal = () => {
+    setAddError('')
+    setShowAddModal(true)
+  }
+
+  const handleAddSubmit = async (username) => {
     setConnecting(true)
-    setError('')
+    setAddError('')
     try {
-      await addAccount(username.trim())
+      await addAccount(username)
+      setShowAddModal(false)
     } catch (err) {
-      setError(
+      setAddError(
         err.response?.data?.message ||
           err.response?.data?.error ||
           err.message ||
@@ -228,17 +432,21 @@ export default function AccountCarousel() {
     }
   }
 
-  const handleDisconnect = async (account) => {
-    if (
-      !window.confirm(
-        `Disconnect ${account.name}?\nScheduled posts and queue dispatches will be suspended.`
-      )
-    )
-      return
+  // ── Disconnect Account ────────────────────────────────────────────────
+  const handleDisconnectRequest = (account) => {
+    setPendingDisconnect(account)
+    setShowDiscModal(true)
+  }
+
+  const handleDisconnectConfirm = async () => {
+    if (!pendingDisconnect) return
+    setShowDiscModal(false)
     try {
-      await removeAccount(account.id)
-    } catch (err) {
-      alert('Failed to disconnect account')
+      await removeAccount(pendingDisconnect.id)
+    } catch {
+      // silently — nothing actionable here
+    } finally {
+      setPendingDisconnect(null)
     }
   }
 
@@ -248,69 +456,90 @@ export default function AccountCarousel() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-gray-900">Connected Accounts</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {realAccounts.length === 0
-              ? 'Connect your first Instagram account to begin.'
-              : `${realAccounts.length} account${realAccounts.length === 1 ? '' : 's'} connected · click to switch`}
-          </p>
+    <>
+      {/* ── Add Account Modal ── */}
+      <AddAccountModal
+        open={showAddModal}
+        onClose={() => !connecting && setShowAddModal(false)}
+        onSubmit={handleAddSubmit}
+        submitting={connecting}
+        error={addError}
+      />
+
+      {/* ── Disconnect Confirm Modal ── */}
+      <DisconnectModal
+        open={showDiscModal}
+        account={pendingDisconnect}
+        onClose={() => setShowDiscModal(false)}
+        onConfirm={handleDisconnectConfirm}
+      />
+
+      <div className="space-y-3">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900">Connected Accounts</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {realAccounts.length === 0
+                ? 'Connect your first Instagram account to begin.'
+                : `${realAccounts.length} account${realAccounts.length === 1 ? '' : 's'} connected · click to switch`}
+            </p>
+          </div>
+          {realAccounts.length > 0 && (
+            <button
+              id="ig-add-account-header"
+              onClick={openAddModal}
+              disabled={connecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {connecting ? 'Adding…' : 'Add'}
+            </button>
+          )}
         </div>
-        {realAccounts.length > 0 && (
-          <button
-            onClick={handleConnect}
-            disabled={connecting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm shrink-0"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {connecting ? 'Adding…' : 'Add'}
-          </button>
+
+        {/* Body */}
+        {realAccounts.length === 0 ? (
+          <EmptyState onConnect={openAddModal} connecting={connecting} error={addError} />
+        ) : (
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {realAccounts.map((account) => (
+                <AccountCard
+                  key={account.id}
+                  account={account}
+                  isActive={account.id === activeId}
+                  onSelect={setActiveAccount}
+                  onDisconnect={handleDisconnectRequest}
+                />
+              ))}
+            </AnimatePresence>
+
+            {/* Inline add-new affordance */}
+            <motion.button
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              onClick={openAddModal}
+              disabled={connecting}
+              id="ig-add-account-inline"
+              className="group shrink-0 w-[160px] min-h-[160px] rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 snap-start"
+              title="Add another Instagram account"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 group-hover:bg-purple-100 transition-colors">
+                <Plus className="h-4 w-4" />
+              </div>
+              <span className="text-xs font-semibold">
+                {connecting ? 'Adding…' : 'Add New'}
+              </span>
+            </motion.button>
+          </div>
+        )}
+
+        {addError && realAccounts.length > 0 && !showAddModal && (
+          <p className="text-xs text-red-500 px-1">{addError}</p>
         )}
       </div>
-
-      {/* Body */}
-      {realAccounts.length === 0 ? (
-        <EmptyState onConnect={handleConnect} connecting={connecting} error={error} />
-      ) : (
-        <div className="flex items-center gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {realAccounts.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                isActive={account.id === activeId}
-                onSelect={setActiveAccount}
-                onDisconnect={handleDisconnect}
-              />
-            ))}
-          </AnimatePresence>
-
-          {/* Inline add-new affordance (real button, not a placeholder card) */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.2 }}
-            onClick={handleConnect}
-            disabled={connecting}
-            className="group shrink-0 w-[160px] min-h-[160px] rounded-2xl border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/30 flex flex-col items-center justify-center gap-2 text-gray-500 hover:text-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 snap-start"
-            title="Add another Instagram account"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 group-hover:bg-purple-100 transition-colors">
-              <Plus className="h-4 w-4" />
-            </div>
-            <span className="text-xs font-semibold">
-              {connecting ? 'Adding…' : 'Add New'}
-            </span>
-          </motion.button>
-        </div>
-      )}
-
-      {error && realAccounts.length > 0 && (
-        <p className="text-xs text-red-500 px-1">{error}</p>
-      )}
-    </div>
+    </>
   )
 }
