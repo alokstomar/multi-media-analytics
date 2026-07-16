@@ -560,7 +560,16 @@ export default class RapidApiProvider extends InstagramProvider {
         bodyData.maxId = cursor
       }
 
-      const body = await this._httpPost('/api/instagram/reels', bodyData, `getReels.page[${pagesFetched}]`)
+      let body
+      try {
+        body = await this._httpPost('/api/instagram/reels', bodyData, `getReels.page[${pagesFetched}]`)
+      } catch (err) {
+        if (allReels.length > 0) {
+          this._logDebug(`getReels pagination failed at page ${pagesFetched}, returning ${allReels.length} reels`, err.message)
+          break
+        }
+        throw err
+      }
       const items = this._extractReelItems(body)
       if (items === null) {
         throw new Error(

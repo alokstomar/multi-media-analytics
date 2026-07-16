@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import './config/env.js'
 import './config/dns.js'
 import express from 'express'
 import cors from 'cors'
