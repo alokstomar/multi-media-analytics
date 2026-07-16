@@ -184,6 +184,8 @@ export default function CommentsIntelligence() {
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  // null = unknown, true = supported, false = provider cannot fetch comments
+  const [commentsSupported, setCommentsSupported] = useState(null)
 
   // Reset page on filter change
   useEffect(() => {
@@ -497,11 +499,24 @@ export default function CommentsIntelligence() {
     setRefreshing(true)
     setError('')
     try {
-      await syncInstagram(username)
+      const syncResult = await syncInstagram(username)
+      // syncAll returns { commentsSupported: bool, ... }. When the provider
+      // host doesn't support comments at all, sync completes but comments
+      // will always be empty — surface that clearly rather than leaving
+      // the user staring at "No comments found for this account."
+      if (syncResult?.data?.commentsSupported === false) {
+        setCommentsSupported(false)
+      } else if (syncResult?.data?.commentsSupported === true) {
+        setCommentsSupported(true)
+      }
       await fetchData({ page: 1, refresh: true })
       setPage(1)
-    } catch {
-      setError('Failed to sync comments from Instagram. Please try again.')
+    } catch (err) {
+      // Surface the real backend error (rate limit, network, etc.) instead
+      // of a hardcoded "Failed to sync" string — the user can't act on a
+      // generic message.
+      const backendError = err?.response?.data?.error || err?.message
+      setError(backendError || 'Failed to sync from Instagram. Please try again.')
     } finally {
       setRefreshing(false)
     }
@@ -784,9 +799,23 @@ export default function CommentsIntelligence() {
                     {!comments.length ? (
                       <div className="py-16 text-center text-gray-400">
                         <MessageCircle className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                        <p className="font-medium">{error ? 'No comments available.' : 'No comments found for this account.'}</p>
-                        {!error && (
+                        {error ? (
+                          <p className="font-medium">No comments available.</p>
+                        ) : commentsSupported === false ? (
                           <>
+                            <p className="font-medium text-gray-700">Comments not available on this provider</p>
+                            <p className="text-sm mt-1 max-w-md mx-auto">
+                              The configured RapidAPI host (instagram120.p.rapidapi.com) only
+                              exposes profile, reels, and stories — it has no comments endpoint.
+                              Profile and reels data still sync normally. To analyze comments,
+                              subscribe to a comments-capable RapidAPI host and update
+                              <code className="mx-1 px-1 py-0.5 bg-gray-100 rounded text-[11px]">RAPIDAPI_HOST</code>
+                              on the backend.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-medium">No comments found for this account.</p>
                             <p className="text-sm mt-1">Click "Sync from Instagram" to fetch and analyze real comments.</p>
                             <button
                               onClick={handleRefresh}

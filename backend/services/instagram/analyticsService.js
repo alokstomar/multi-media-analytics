@@ -133,40 +133,71 @@ export const analyticsService = {
     //    Comments are OPTIONAL — any failure is logged as a warning and does NOT
     //    abort the sync or set syncStatus="error". Profile, reels, and analytics
     //    always complete regardless of comments outcome.
+    //
+    //    If the configured provider host does not support comments at all
+    //    (e.g. instagram120.p.rapidapi.com is a download-link extractor with
+    //    no comments endpoint), skip the loop entirely instead of making
+    //    three doomed calls that previously pushed syncAll past the
+    //    frontend's 60s timeout.
     const commentWarnings = []
-    for (let i = 0; i < Math.min(savedReels.length, 3); i++) {
-      const reelDoc = savedReels[i]
-      try {
-        const comments = await providerFactory.getProvider().getComments(reelDoc.reelId)
-        for (const c of comments) {
-          let sentiment = c.sentiment || 'neutral'
-          const textLower = (c.text || '').toLowerCase()
-          if (textLower.includes('best') || textLower.includes('love') || textLower.includes('awesome') || textLower.includes('great') || textLower.includes('genius') || textLower.includes('amazing')) {
-            sentiment = 'positive'
-          } else if (textLower.includes('fail') || textLower.includes('disagree') || textLower.includes('bad') || textLower.includes('hate')) {
-            sentiment = 'negative'
-          }
+    let commentsSupported = true
+    const provider = providerFactory.getProvider()
+    if (typeof provider.supportsComments === 'function' && !provider.supportsComments()) {
+      commentsSupported = false
+      console.warn(
+        `[AnalyticsService] Comments skipped for @${username}: current provider ` +
+        `(${process.env.RAPIDAPI_HOST || process.env.INSTAGRAM_PROVIDER}) does not support comments.`
+      )
+      commentWarnings.push({
+        reelId: null,
+        code: 'COMMENTS_NOT_SUPPORTED',
+        error: 'Comments are not supported by the configured RapidAPI host.',
+      })
+    } else {
+      for (let i = 0; i < Math.min(savedReels.length, 3); i++) {
+        const reelDoc = savedReels[i]
+        try {
+          const comments = await provider.getComments(reelDoc.reelId)
+          for (const c of comments) {
+            let sentiment = c.sentiment || 'neutral'
+            const textLower = (c.text || '').toLowerCase()
+            if (textLower.includes('best') || textLower.includes('love') || textLower.includes('awesome') || textLower.includes('great') || textLower.includes('genius') || textLower.includes('amazing')) {
+              sentiment = 'positive'
+            } else if (textLower.includes('fail') || textLower.includes('disagree') || textLower.includes('bad') || textLower.includes('hate')) {
+              sentiment = 'negative'
+            }
 
-          await InstagramComment.findOneAndUpdate(
-            { commentId: c.commentId, workspaceId },
-            {
-              reelId: reelDoc.reelId,
-              text: c.text,
-              author: c.author,
-              sentiment,
-              provider: process.env.INSTAGRAM_PROVIDER || 'mock',
-              providerVersion: 'v1',
-              syncedAt: new Date(),
-              rawPayload: c.rawPayload || {}
-            },
-            { new: true, upsert: true }
-          )
+            await InstagramComment.findOneAndUpdate(
+              { commentId: c.commentId, workspaceId },
+              {
+                reelId: reelDoc.reelId,
+                text: c.text,
+                author: c.author,
+                sentiment,
+                provider: process.env.INSTAGRAM_PROVIDER || 'rapidapi',
+                providerVersion: 'v1',
+                syncedAt: new Date(),
+                rawPayload: c.rawPayload || {}
+              },
+              { new: true, upsert: true }
+            )
+          }
+        } catch (commentErr) {
+          // Comments are optional — warn and continue; do not fail the sync.
+          const warning = `[AnalyticsService] Comments skipped for reel ${reelDoc.reelId} (@${username}): ${commentErr.message}`
+          console.warn(warning)
+          commentWarnings.push({
+            reelId: reelDoc.reelId,
+            error: commentErr.message,
+            code: commentErr.code,
+          })
+          // If the provider itself doesn't support comments, no point trying
+          // the next reel — break out of the loop.
+          if (commentErr.code === 'COMMENTS_NOT_SUPPORTED') {
+            commentsSupported = false
+            break
+          }
         }
-      } catch (commentErr) {
-        // Comments are optional — warn and continue; do not fail the sync.
-        const warning = `[AnalyticsService] Comments skipped for reel ${reelDoc.reelId} (@${username}): ${commentErr.message}`
-        console.warn(warning)
-        commentWarnings.push({ reelId: reelDoc.reelId, error: commentErr.message })
       }
     }
 
@@ -183,6 +214,7 @@ export const analyticsService = {
       profile,
       reelsCount: savedReels.length,
       snapshot,
+      commentsSupported,
       ...(commentWarnings.length > 0 && { commentWarnings }),
     }
   },

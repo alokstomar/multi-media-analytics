@@ -784,11 +784,32 @@ export default class RapidApiProvider extends InstagramProvider {
     if (!this._isConfigured()) {
       throw new Error('RapidApiProvider not configured: RAPIDAPI_KEY or RAPIDAPI_HOST missing')
     }
+    // instagram120.p.rapidapi.com is a download-link extractor. It exposes
+    // /api/instagram/profile, /reels, and /stories ONLY — every comments
+    // path returns 404 "Endpoint does not exist". Calling the missing
+    // endpoint burned up to 15s per reel (3 reels × 15s = 45s per sync)
+    // and pushed syncAll past the frontend's 60s timeout, surfacing as
+    // "Failed to sync comments from Instagram". Fail fast with a typed
+    // error so callers can distinguish "unsupported" from "broken".
     if (this._isInstagram120()) {
-      // instagram120 host supports comments via POST /api/instagram/comments
-      return this._fetchAllCommentsPost(reelId)
+      const err = new Error(
+        'Comments are not supported by the current RapidAPI host ' +
+        '(instagram120.p.rapidapi.com). This host only exposes /profile, ' +
+        '/reels, and /stories. To fetch comments, subscribe to a comments-' +
+        'capable RapidAPI host and update RAPIDAPI_HOST.'
+      )
+      err.code = 'COMMENTS_NOT_SUPPORTED'
+      throw err
     }
     return this._fetchAllComments(reelId)
+  }
+
+  /**
+   * Whether this provider instance can fetch comments for the configured host.
+   * Used by syncAll / commentsService to skip wasted calls early.
+   */
+  supportsComments() {
+    return !this._isInstagram120()
   }
 
   async getAnalytics(username) {

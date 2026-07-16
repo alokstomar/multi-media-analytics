@@ -77,9 +77,23 @@ export const commentsService = {
     }
 
     // ── Step 2: Call provider (RapidAPI) ───────────────────────────
-    console.log(`[CommentsService] Fetching real comments from provider for reel ${reelId}`)
     const provider = providerFactory.getProvider()
     const providerName = PROVIDER_NAME()
+
+    // Short-circuit: some RapidAPI hosts (e.g. instagram120) do not expose
+    // a comments endpoint at all. Skip the doomed call and serve whatever
+    // MongoDB has. The provider's getComments() would throw a typed
+    // COMMENTS_NOT_SUPPORTED error — checking supportsComments() here
+    // avoids the throw and the noise.
+    if (typeof provider.supportsComments === 'function' && !provider.supportsComments()) {
+      console.log(`[CommentsService] Provider does not support comments — serving MongoDB only for reel ${reelId}`)
+      const existing = await InstagramComment.find({ reelId, workspaceId })
+        .sort({ syncedAt: -1 })
+        .lean()
+      return existing
+    }
+
+    console.log(`[CommentsService] Fetching real comments from provider for reel ${reelId}`)
 
     let commentsData = []
     try {
