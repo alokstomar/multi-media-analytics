@@ -6,23 +6,28 @@ import OAuthState from '../models/OAuthState.js'
 import { encrypt, decrypt } from '../utils/encryption.js'
 
 /**
- * Mock mode is an explicit, opt-in development affordance. It must NEVER fire
- * implicitly in production — that would silently fabricate "Mock IG
- * Professional" accounts whenever OAuth credentials happened to be missing.
+ * Mock mode requires BOTH gates — a development context AND an explicit
+ * opt-in flag. Either alone is insufficient. This makes accidental mock
+ * data in production effectively impossible.
  *
- * Allowed triggers (all three must be intentional, not incidental):
- *   1. INSTAGRAM_OAUTH_MOCK=1          — explicit per-module opt-in
- *   2. NODE_ENV=development            — local dev server
- *   3. clientId starts with 'mock_'    — clearly-fake test credential
+ * Gate 1 (context — must be a dev environment):
+ *   NODE_ENV=development OR PUBLISHING_MODE=mock
  *
- * `PUBLISHING_MODE !== 'live'` alone is NOT sufficient — that flag also
- * gates unrelated publishing-side logic and can be set in staging.
+ * Gate 2 (opt-in — must explicitly request mock):
+ *   INSTAGRAM_OAUTH_MOCK=1 OR INSTAGRAM_CLIENT_ID starts with 'mock_'
+ *
+ * Note: `PUBLISHING_MODE !== 'live'` alone is NOT sufficient. That flag also
+ * gates unrelated publishing-side logic and could be set in staging without
+ * the operator intending OAuth mock data.
  */
 function isMockModeEnabled() {
-  if (process.env.INSTAGRAM_OAUTH_MOCK === '1') return true
-  if (process.env.NODE_ENV === 'development') return true
-  const clientId = process.env.INSTAGRAM_CLIENT_ID
-  return !!(clientId && clientId.startsWith('mock_'))
+  const devContext =
+    process.env.NODE_ENV === 'development' ||
+    process.env.PUBLISHING_MODE === 'mock'
+  const explicitOptIn =
+    process.env.INSTAGRAM_OAUTH_MOCK === '1' ||
+    !!(process.env.INSTAGRAM_CLIENT_ID && process.env.INSTAGRAM_CLIENT_ID.startsWith('mock_'))
+  return devContext && explicitOptIn
 }
 
 

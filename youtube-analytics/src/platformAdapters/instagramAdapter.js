@@ -80,16 +80,17 @@ export function useInstagramAdapter() {
     // Surface zero rather than fabricating a percentage of profile visits.
     const absWebsiteClicks = 0
 
-    // Spark histories
+    // Spark histories. Metrics without a backend source render flat zeros —
+    // no multipliers fabricated from other metrics.
     const ts = rawAnalytics.timeSeries || []
     const sparkFollowers = ts.length ? ts.slice(-7).map(d => d.followers) : [0,0,0,0,0,0,0]
     const sparkFollowersGrowth = ts.length ? ts.slice(-7).map(d => Math.round(d.followers * folg / 100)) : [0,0,0,0,0,0,0]
     const sparkReach = ts.length ? ts.slice(-7).map(d => d.reach) : [0,0,0,0,0,0,0]
     const sparkImpressions = ts.length ? ts.slice(-7).map(d => d.impressions) : [0,0,0,0,0,0,0]
-    const sparkProfileVisits = ts.length ? ts.slice(-7).map(d => Math.round(d.impressions * 0.1)) : [0,0,0,0,0,0,0]
+    const sparkProfileVisits = ts.length ? ts.slice(-7).map(d => d.profileVisits || 0) : [0,0,0,0,0,0,0]
     const sparkEngaged = ts.length ? ts.slice(-7).map(d => Math.round(d.reach * (d.engagement / 100))) : [0,0,0,0,0,0,0]
     const sparkEr = ts.length ? ts.slice(-7).map(d => d.engagement) : [0,0,0,0,0,0,0]
-    const sparkClicks = ts.length ? ts.slice(-7).map(d => Math.round(d.impressions * 0.015)) : [0,0,0,0,0,0,0]
+    const sparkClicks = ts.length ? ts.slice(-7).map(d => d.websiteClicks || 0) : [0,0,0,0,0,0,0]
 
     return [
       {
@@ -123,8 +124,8 @@ export function useInstagramAdapter() {
         label: 'Impressions',
         value: fmt(imp),
         unit: '',
-        trend: reachg >= 0 ? `+${(reachg * 1.1).toFixed(1)}%` : `${(reachg * 1.1).toFixed(1)}%`,
-        up: reachg >= 0,
+        trend: '0%',
+        up: true,
         spark: sparkImpressions,
         estimated: false,
       },
@@ -132,8 +133,8 @@ export function useInstagramAdapter() {
         label: 'Profile Visits',
         value: fmt(pv),
         unit: '',
-        trend: reachg >= 0 ? `+${(reachg * 0.9).toFixed(1)}%` : `${(reachg * 0.9).toFixed(1)}%`,
-        up: reachg >= 0,
+        trend: '0%',
+        up: true,
         spark: sparkProfileVisits,
         estimated: false,
       },
@@ -159,10 +160,10 @@ export function useInstagramAdapter() {
         label: 'Website Clicks',
         value: fmt(absWebsiteClicks),
         unit: '',
-        trend: reachg >= 0 ? `+${(reachg * 0.85).toFixed(1)}%` : `${(reachg * 0.85).toFixed(1)}%`,
-        up: reachg >= 0,
+        trend: '0%',
+        up: true,
         spark: sparkClicks,
-        estimated: true,
+        estimated: false,
       },
     ]
   }, [rawAnalytics])
