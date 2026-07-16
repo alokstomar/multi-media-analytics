@@ -710,10 +710,11 @@ export const cancelSchedulerPost = (jobId) =>
 
 // ── Instagram Analytics Framework ─────────────────────────────────────
 export const syncInstagram = (username) =>
-  api.post(`/api/instagram/sync/${username}`).then((r) => r.data)
+  api.post(`/api/instagram/sync/${username}`, null, { timeout: 60000 }).then((r) => r.data)
 
 export const syncInstagramBulk = (usernames) =>
-  api.post('/api/instagram/sync-bulk', { usernames }).then((r) => r.data)
+  api.post('/api/instagram/sync-bulk', { usernames }, { timeout: 120000 }).then((r) => r.data)
+
 
 export const getInstagramProfile = (username, force = false) =>
   api.get(`/api/instagram/profile/${username}`, { params: { force } }).then((r) => r.data)
