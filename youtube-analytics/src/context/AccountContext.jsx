@@ -205,25 +205,15 @@ export function AccountProvider({ children }) {
 
   const connectNewAccount = useCallback(async (platform, payload) => {
     if (platform !== 'instagram') {
-      const mockId = `${platform}_${Math.random().toString(36).substring(2, 8)}`
-      const newAcc = {
-        id: mockId,
-        accountId: mockId,
-        username: `@${(payload.username || '').replace('@', '')}`,
-        displayName: payload.displayName || payload.username,
-        profileImage: `https://ui-avatars.com/api/?name=${encodeURIComponent(payload.displayName || payload.username)}&background=000&color=fff`,
-        followers: 12000,
-        following: 500,
-        postsCount: 45,
-        category: payload.category || 'Creator',
-        isVerified: false,
-      }
-      setAccounts(prev => ({
-        ...prev,
-        [platform]: prev[platform].filter(a => a.id.startsWith('demo_')) ? [newAcc] : [...prev[platform], newAcc]
-      }))
-      setSelectedAccountIds(prev => ({ ...prev, [platform]: mockId }))
-      return { success: true, data: newAcc }
+      // Twitter and LinkedIn are connected via their own OAuth flows
+      // (services/twitterOAuthService, services/linkedInOAuthService), not via
+      // username entry. This branch previously fabricated a placeholder account
+      // with hardcoded follower metrics — never acceptable in production.
+      const err = new Error(
+        `${platform} accounts must be connected via OAuth. Direct username connect is not supported.`
+      )
+      err.code = 'OAUTH_REQUIRED'
+      throw err
     }
 
     const username = normalizeUsername(payload?.username || '')

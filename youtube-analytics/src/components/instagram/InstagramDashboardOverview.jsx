@@ -165,6 +165,25 @@ function SourceBar({ source }) {
   )
 }
 
+// ── Distribution Card with proper empty state ─────────────────────────────
+function DistributionCard({ title, sources }) {
+  const hasData = sources && sources.length > 0
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+      <h3 className="text-sm font-bold text-gray-900 mb-4">{title}</h3>
+      {hasData ? (
+        <div className="space-y-3">
+          {sources.map((s) => (
+            <SourceBar key={s.name} source={s} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 py-6 text-center">No analytics available.</p>
+      )}
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────
 export default function InstagramDashboardOverview() {
   const {
@@ -185,8 +204,6 @@ export default function InstagramDashboardOverview() {
   const insights = analyticsData?.aiInsights || []
   const trafficSources = analyticsData?.trafficSources || []
   const devices = analyticsData?.devices || []
-  const trafficEstimated = analyticsData?.trafficEstimated
-  const devicesEstimated = analyticsData?.devicesEstimated
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -306,38 +323,11 @@ export default function InstagramDashboardOverview() {
               </div>
             )}
 
-            {/* Traffic + Devices (placeholders, flagged) */}
+            {/* Traffic Sources + Devices — real data only. Cards render their
+                own empty state when the backend has not yet provided values. */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-900">Traffic Sources</h3>
-                  {trafficEstimated && (
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                      Placeholder
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  {trafficSources.map((s) => (
-                    <SourceBar key={s.name} source={s} />
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-gray-900">Devices</h3>
-                  {devicesEstimated && (
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                      Placeholder
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-3">
-                  {devices.map((d) => (
-                    <SourceBar key={d.name} source={d} />
-                  ))}
-                </div>
-              </div>
+              <DistributionCard title="Traffic Sources" sources={trafficSources} />
+              <DistributionCard title="Devices" sources={devices} />
             </div>
           </>
         )}

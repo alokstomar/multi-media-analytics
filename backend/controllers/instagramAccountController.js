@@ -1,17 +1,11 @@
 import InstagramProfile from '../models/InstagramProfile.js'
 import { analyticsService } from '../services/instagram/analyticsService.js'
+import { providerFactory } from '../services/instagram/providerFactory.js'
 import { AppError } from '../utils/errorHandler.js'
-
-const STALENESS_MS = 24 * 60 * 60 * 1000
 
 function normalizeUsername(raw) {
   if (typeof raw !== 'string') return ''
   return raw.trim().replace(/^@+/, '').toLowerCase()
-}
-
-function isStale(profile) {
-  if (!profile?.syncedAt) return true
-  return Date.now() - new Date(profile.syncedAt).getTime() > STALENESS_MS
 }
 
 async function runBackgroundSync(username, workspaceId) {
@@ -49,27 +43,52 @@ export async function addAccount(req, res, next) {
       return res.json({ success: true, data: existing })
     }
 
+    // Probe the provider BEFORE any DB write. If the provider fails
+    // (429/401/403/404/500/network), propagate the error and leave the
+    // database untouched. No MockProvider fallback — ever.
+    const provider = providerFactory.getProvider()
+    const profileData = await provider.getProfile(username)
+    const providerName = providerFactory.getProviderLabel()
+
     if (existing && existing.deletedAt) {
-      const needsSync = isStale(existing)
       const updated = await InstagramProfile.findOneAndUpdate(
         { username, workspaceId },
         {
           deletedAt: null,
-          syncStatus: needsSync ? 'syncing' : existing.syncStatus === 'error' ? 'syncing' : existing.syncStatus,
+          fullName: profileData.fullName,
+          bio: profileData.bio,
+          profilePic: profileData.profilePic,
+          followers: profileData.followers,
+          following: profileData.following,
+          postsCount: profileData.postsCount,
+          verified: profileData.verified,
+          provider: providerName,
+          providerVersion: 'v1',
+          syncedAt: new Date(),
+          syncStatus: 'syncing',
           syncError: '',
         },
         { new: true }
       )
-      if (needsSync || updated.syncStatus === 'syncing') {
-        setImmediate(() => runBackgroundSync(username, workspaceId))
-      }
+      setImmediate(() => runBackgroundSync(username, workspaceId))
       return res.json({ success: true, data: updated })
     }
 
     const created = await InstagramProfile.create({
       username,
       workspaceId,
+      fullName: profileData.fullName,
+      bio: profileData.bio,
+      profilePic: profileData.profilePic,
+      followers: profileData.followers,
+      following: profileData.following,
+      postsCount: profileData.postsCount,
+      verified: profileData.verified,
+      provider: providerName,
+      providerVersion: 'v1',
+      syncedAt: new Date(),
       syncStatus: 'syncing',
+      rawPayload: profileData.rawPayload || {},
     })
     setImmediate(() => runBackgroundSync(username, workspaceId))
     return res.json({ success: true, data: created })

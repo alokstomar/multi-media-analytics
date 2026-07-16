@@ -8,11 +8,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-  PieChart,
-  Pie,
 } from 'recharts'
 import {
   Users,
@@ -20,11 +15,9 @@ import {
   BarChart3,
   Heart,
   UserCheck,
-  Sparkles,
   TrendingUp,
   TrendingDown,
   MapPin,
-  Building2,
   Calendar,
   AlertCircle,
   Info,
@@ -40,62 +33,6 @@ import AccountCarousel from './AccountCarousel'
 
 const RANGES = ['7D', '30D', '90D', '1Y']
 const RANGE_DAYS = { '7D': 7, '30D': 30, '90D': 90, '1Y': 365 }
-
-// v1 estimated audience distributions. Backend audience endpoint is pending;
-// these are stable, reasonable defaults flagged with `estimated: true`.
-const ESTIMATED_CITIES_BY_COUNTRY = {
-  USA: [
-    { name: 'New York', share: 0.30 },
-    { name: 'Los Angeles', share: 0.22 },
-    { name: 'Chicago', share: 0.15 },
-    { name: 'Miami', share: 0.12 },
-  ],
-  UK: [
-    { name: 'London', share: 0.45 },
-    { name: 'Manchester', share: 0.20 },
-    { name: 'Birmingham', share: 0.15 },
-  ],
-  Brazil: [
-    { name: 'São Paulo', share: 0.40 },
-    { name: 'Rio de Janeiro', share: 0.28 },
-    { name: 'Brasília', share: 0.12 },
-  ],
-  Canada: [
-    { name: 'Toronto', share: 0.35 },
-    { name: 'Vancouver', share: 0.22 },
-    { name: 'Montreal', share: 0.20 },
-  ],
-  India: [
-    { name: 'Mumbai', share: 0.28 },
-    { name: 'Delhi', share: 0.24 },
-    { name: 'Bangalore', share: 0.18 },
-  ],
-  Germany: [
-    { name: 'Berlin', share: 0.30 },
-    { name: 'Munich', share: 0.22 },
-    { name: 'Hamburg', share: 0.18 },
-  ],
-}
-const FALLBACK_CITIES = [
-  { name: 'Capital City', share: 0.35 },
-  { name: 'Metro Area', share: 0.22 },
-  { name: 'Coastal City', share: 0.15 },
-]
-
-const ESTIMATED_AGE = [
-  { range: '13-17', pct: 6, color: '#C4B5FD' },
-  { range: '18-24', pct: 31, color: '#8B5CF6' },
-  { range: '25-34', pct: 36, color: '#6366F1' },
-  { range: '35-44', pct: 15, color: '#3B82F6' },
-  { range: '45-54', pct: 8, color: '#60A5FA' },
-  { range: '55+', pct: 4, color: '#93C5FD' },
-]
-
-const ESTIMATED_GENDER = [
-  { name: 'Women', pct: 52, color: '#EC4899' },
-  { name: 'Men', pct: 46, color: '#3B82F6' },
-  { name: 'Non-binary', pct: 2, color: '#8B5CF6' },
-]
 
 /* ─── Skeleton ──────────────────────────────────────────────────────────── */
 
@@ -148,7 +85,6 @@ const KPI_THEMES = {
   impressions: { icon: BarChart3, accent: '#3B82F6', bg: 'bg-blue-50', fg: 'text-blue-600' },
   engagement: { icon: Heart, accent: '#EF4444', bg: 'bg-red-50', fg: 'text-red-600' },
   profileVisits: { icon: UserCheck, accent: '#10B981', bg: 'bg-emerald-50', fg: 'text-emerald-600' },
-  contentScore: { icon: Sparkles, accent: '#F59E0B', bg: 'bg-amber-50', fg: 'text-amber-600' },
 }
 
 function KPICard({ themeKey, label, value, unit, trend, up, estimated, index }) {
@@ -347,141 +283,6 @@ function GeoRow({ name, value, flag, accounts, color = '#3B82F6' }) {
   )
 }
 
-/* ─── Audience: Top Cities (v1 estimated from country shares) ───────────── */
-
-function TopCities({ countries, totalFollowers, estimated }) {
-  const rows = useMemo(() => {
-    if (!countries || !totalFollowers) return []
-    const real = countries.filter((c) => c.country !== 'Others')
-    const out = []
-    real.forEach((c) => {
-      const countryFollowers = Math.round((totalFollowers * (c.pct || 0)) / 100)
-      const cityPool = ESTIMATED_CITIES_BY_COUNTRY[c.country] || FALLBACK_CITIES
-      cityPool.forEach((city) => {
-        out.push({
-          name: city.name,
-          flag: c.flag || '🏙️',
-          value: ((c.pct || 0) * city.share),
-          accounts: Math.round(countryFollowers * city.share),
-        })
-      })
-    })
-    return out.sort((a, b) => b.value - a.value).slice(0, 6)
-  }, [countries, totalFollowers])
-
-  const palette = ['#8B5CF6', '#EC4899', '#3B82F6', '#10B981', '#F59E0B', '#EF4444']
-
-  return (
-    <Panel
-      title="Top Cities"
-      icon={Building2}
-      color="#8B5CF6"
-      estimated={estimated}
-      empty={rows.length === 0}
-    >
-      <div className="space-y-3">
-        {rows.map((r, i) => (
-          <GeoRow key={r.name} {...r} color={palette[i % palette.length]} />
-        ))}
-      </div>
-    </Panel>
-  )
-}
-
-/* ─── Audience: Age Distribution (v1 estimated) ─────────────────────────── */
-
-function AgeDistribution({ estimated }) {
-  return (
-    <Panel
-      title="Age Distribution"
-      icon={Users}
-      color="#6366F1"
-      estimated={estimated}
-      empty={ESTIMATED_AGE.length === 0}
-    >
-      <ResponsiveContainer width="100%" height={160}>
-        <BarChart data={ESTIMATED_AGE} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-          <XAxis dataKey="range" tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} width={36} />
-          <Tooltip
-            cursor={{ fill: '#F9FAFB' }}
-            content={({ active, payload }) =>
-              active && payload && payload.length ? (
-                <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md">
-                  <p className="text-sm font-bold text-gray-900 tabular-nums">{payload[0].payload.pct}%</p>
-                  <p className="text-[10px] text-gray-500">Age {payload[0].payload.range}</p>
-                </div>
-              ) : null
-            }
-          />
-          <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-            {ESTIMATED_AGE.map((entry, i) => (
-              <Cell key={i} fill={entry.color} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </Panel>
-  )
-}
-
-/* ─── Audience: Gender Distribution (v1 estimated) ──────────────────────── */
-
-function GenderDistribution({ estimated }) {
-  return (
-    <Panel
-      title="Gender Distribution"
-      icon={UserCheck}
-      color="#EC4899"
-      estimated={estimated}
-      empty={ESTIMATED_GENDER.length === 0}
-    >
-      <div className="flex items-center gap-4">
-        <ResponsiveContainer width="50%" height={140}>
-          <PieChart>
-            <Pie
-              data={ESTIMATED_GENDER}
-              dataKey="pct"
-              nameKey="name"
-              cx="50%"
-              cy="50%"
-              innerRadius={32}
-              outerRadius={56}
-              paddingAngle={2}
-            >
-              {ESTIMATED_GENDER.map((entry, i) => (
-                <Cell key={i} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              content={({ active, payload }) =>
-                active && payload && payload.length ? (
-                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-md">
-                    <p className="text-sm font-bold text-gray-900 tabular-nums">{payload[0].value}%</p>
-                    <p className="text-[10px] text-gray-500">{payload[0].name}</p>
-                  </div>
-                ) : null
-              }
-            />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="flex-1 space-y-2">
-          {ESTIMATED_GENDER.map((g) => (
-            <div key={g.name} className="flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 text-gray-700 font-medium">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: g.color }} />
-                {g.name}
-              </span>
-              <span className="font-semibold text-gray-900 tabular-nums">{g.pct}%</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </Panel>
-  )
-}
-
 /* ─── Panel wrapper ─────────────────────────────────────────────────────── */
 
 function Panel({ title, icon: Icon, color, estimated, empty, children }) {
@@ -572,7 +373,7 @@ export default function InstagramAnalytics() {
   const geo = analyticsData?.geoData || []
   const hasOverview = !!overview
 
-  /* ── 6 KPI cards: Followers, Reach, Impressions, Engagement, Profile Visits, Content Score ── */
+  /* ── 5 KPI cards: Followers, Reach, Impressions, Engagement, Profile Visits ── */
   const kpis = useMemo(() => {
     const byLabel = Object.fromEntries(stats.map((s) => [s.label, s]))
     const followers = byLabel['Followers']
@@ -580,24 +381,6 @@ export default function InstagramAnalytics() {
     const impressions = byLabel['Impressions']
     const engagement = byLabel['Engagement Rate']
     const profileVisits = byLabel['Profile Visits']
-
-    // Content Score: composite heuristic (0-100). Combines engagement rate,
-    // reach consistency, and growth signal. Marked estimated.
-    let contentScore = 0
-    let contentTrend = 0
-    let contentUp = true
-    if (overview) {
-      const er = overview.engagementRate || 0
-      const reachVal = overview.reach || 0
-      const followersVal = overview.followers || 1
-      const growth = overview.followersGrowth || 0
-      const erScore = Math.min(er * 8, 40) // 5% ER ~ 40 pts
-      const reachScore = Math.min((reachVal / Math.max(followersVal, 1)) * 30, 30) // reach:follower ratio
-      const growthScore = Math.max(Math.min(growth * 4, 30), 0) // up to 30 from growth
-      contentScore = Math.round(erScore + reachScore + growthScore)
-      contentTrend = growth
-      contentUp = growth >= 0
-    }
 
     return [
       {
@@ -641,17 +424,8 @@ export default function InstagramAnalytics() {
         up: profileVisits?.up ?? true,
         estimated: false,
       },
-      {
-        key: 'contentScore',
-        label: 'Content Score',
-        value: String(contentScore),
-        unit: '/100',
-        trend: contentTrend,
-        up: contentUp,
-        estimated: true,
-      },
     ]
-  }, [stats, overview])
+  }, [stats])
 
   /* ── 4 trend charts: Followers, Reach, Engagement, Impressions ── */
   const followersSeries = useMemo(
@@ -670,8 +444,6 @@ export default function InstagramAnalytics() {
     () => timeSeries.map((d) => ({ date: d.date, impressions: d.impressions })),
     [timeSeries]
   )
-
-  const followersTotal = overview?.followers || 0
 
   return (
     <div className="min-h-screen space-y-6">
@@ -822,20 +594,16 @@ export default function InstagramAnalytics() {
             />
           </div>
 
-          {/* Audience section */}
+          {/* Audience section — only real data. Top Countries renders an empty
+              state when geo data is absent (the Meta audience endpoint is not
+              yet wired). No fabricated cities, age, or gender breakdowns. */}
           <div>
             <div className="flex items-center gap-1.5 mb-3">
               <MapPin className="h-4 w-4 text-purple-500" />
               <h3 className="text-sm font-bold text-gray-900">Audience</h3>
-              <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                v1 estimated
-              </span>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <TopCountries data={geo} estimated={false} />
-              <TopCities countries={geo} totalFollowers={followersTotal} estimated />
-              <AgeDistribution estimated />
-              <GenderDistribution estimated />
             </div>
           </div>
 

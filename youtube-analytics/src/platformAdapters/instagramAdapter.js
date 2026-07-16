@@ -31,7 +31,10 @@ export function useInstagramAdapter() {
         following: snapshot.following || 0,
         postsCount: snapshot.postsCount || 0,
         reach: avgViews,
-        impressions: Math.round(avgViews * 1.3),
+        // Real impressions come from the Meta audience endpoint, which the
+        // backend does not yet expose. Render zero rather than fabricating a
+        // multiplier; the UI shows an empty state.
+        impressions: 0,
         engagementRate: snapshot.engagementRate || 0,
         profileVisits: 0,
         followersGrowth: 0,
@@ -70,10 +73,12 @@ export function useInstagramAdapter() {
     const er = ov.engagementRate || 0
     const erg = ov.engGrowth || 0
 
-    // Absolute growth calculations
+    // Absolute growth calculations — derivations from real values only.
     const absFollowerGrowth = Math.round(fol * folg / 100)
     const absAccountsEngaged = Math.round(reach * (er / 100))
-    const absWebsiteClicks = Math.round(pv * 0.12)
+    // Website clicks require a backend endpoint that does not exist yet.
+    // Surface zero rather than fabricating a percentage of profile visits.
+    const absWebsiteClicks = 0
 
     // Spark histories
     const ts = rawAnalytics.timeSeries || []
@@ -186,11 +191,11 @@ export function useInstagramAdapter() {
         syncedAt: acc.syncedAt || null,
         _raw: {
           subscribers: acc.followers || 0,
-          totalViews: (acc.followers || 0) * 4,
+          totalViews: 0,
           totalVideos: acc.postsCount || 0,
         },
         _analytics: {
-          engagementRate: rawAnalytics?.overview?.engagementRate || 4.2,
+          engagementRate: rawAnalytics?.overview?.engagementRate || 0,
           viewsGrowth: rawAnalytics?.overview?.reachGrowth || 0,
         }
       }
@@ -226,32 +231,10 @@ export function useInstagramAdapter() {
     })
   }, [posts])
 
-  // Mock AI insights for Instagram
-  const aiInsights = useMemo(() => {
-    return rawAnalytics?.overview ? [
-      {
-        type: 'positive',
-        title: 'Reels performing exceptionally well',
-        desc: `Your Reels reach is up ${rawAnalytics.overview.reelGrowth || 15}% this week. Prioritize short-form video.`,
-        action: 'Create 2 new Reels this week',
-        icon: 'trending'
-      },
-      {
-        type: 'warning',
-        title: 'Saves are low relative to likes',
-        desc: 'Viewers are liking your carousel posts but not saving them. Try adding actionable checklists.',
-        action: 'Add a "Save this for later" call-to-action slide',
-        icon: 'alert'
-      },
-      {
-        type: 'info',
-        title: 'Optimal posting window',
-        desc: 'Your audience is most active between 6:00 PM and 9:00 PM EST on weekdays.',
-        action: 'Schedule next post for 7:00 PM EST',
-        icon: 'search'
-      }
-    ] : []
-  }, [rawAnalytics])
+  // AI insights: empty until the backend AI service returns real recommendations.
+  // Previously this returned hardcoded suggestions regardless of the actual
+  // profile — never acceptable in production.
+  const aiInsights = useMemo(() => [], [])
 
   const mappedAnalyticsData = useMemo(() => {
     return {
@@ -262,32 +245,16 @@ export function useInstagramAdapter() {
       retentionEstimated: false,
       retentionSource: '',
       retentionInsights: [],
-      // v1 placeholders — hardcoded distributions, flagged as estimated so the
-      // UI can surface a "Placeholder" badge. Phase 5/6 backend work will
-      // replace these with real audience-endpoint data without changing the
-      // adapter's contract (consumer-visible shape stays identical).
-      trafficSources: [
-        { name: 'Instagram Explore', value: 45, color: '#3B82F6' },
-        { name: 'Home Feed', value: 30, color: '#8B5CF6' },
-        { name: 'Reels Tab', value: 15, color: '#EF4444' },
-        { name: 'Direct Messages', value: 6, color: '#F59E0B' },
-        { name: 'Profile / Search', value: 4, color: '#10B981' },
-      ],
-      trafficEstimated: true,
-      trafficSource: 'Placeholder (backend audience endpoint pending)',
-      devices: [
-        { name: 'Mobile (iOS)', value: 58, color: '#3B82F6' },
-        { name: 'Mobile (Android)', value: 40, color: '#8B5CF6' },
-        { name: 'Desktop / Web', value: 2, color: '#10B981' },
-      ],
-      devicesEstimated: true,
-      geoData: rawAnalytics?.overview ? [
-        { country: 'USA', views: Math.round((rawAnalytics.overview.followers || 0) * 0.4), pct: 40.5, flag: '🇺🇸' },
-        { country: 'UK', views: Math.round((rawAnalytics.overview.followers || 0) * 0.15), pct: 15.2, flag: '🇬🇧' },
-        { country: 'Brazil', views: Math.round((rawAnalytics.overview.followers || 0) * 0.12), pct: 12.1, flag: '🇧🇷' },
-        { country: 'Canada', views: Math.round((rawAnalytics.overview.followers || 0) * 0.08), pct: 8.4, flag: '🇨🇦' },
-        { country: 'Others', views: Math.round((rawAnalytics.overview.followers || 0) * 0.24), pct: 23.8, flag: '🌍' },
-      ] : [],
+      // Audience distributions (traffic sources, devices, geo) come from the
+      // Meta Graph API audience endpoint, which is not yet wired. Return empty
+      // arrays — the UI renders "No data available" rather than fabricated
+      // percentages.
+      trafficSources: [],
+      trafficEstimated: false,
+      trafficSource: '',
+      devices: [],
+      devicesEstimated: false,
+      geoData: [],
       geoEstimated: false,
       engagementData: rawAnalytics?.timeSeries ? rawAnalytics.timeSeries.map(d => ({
         date: d.date,

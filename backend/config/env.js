@@ -11,4 +11,16 @@ const envPath = path.resolve(__dirname, '../.env')
 dotenv.config({ path: envPath })
 
 console.log(`[Env] Loaded environment configuration from: ${envPath}`)
-console.log(`[Env] INSTAGRAM_PROVIDER: ${process.env.INSTAGRAM_PROVIDER || 'mock'}`)
+
+// Instagram provider must be configured explicitly — there is no implicit
+// 'mock' default. Surface misconfigurations at startup so they're impossible
+// to miss in the logs.
+const VALID_IG_PROVIDERS = ['rapidapi', 'meta', 'mock']
+const igProvider = (process.env.INSTAGRAM_PROVIDER || '').trim().toLowerCase()
+if (!igProvider) {
+  console.warn(`[Env] INSTAGRAM_PROVIDER is not set. Add Account will fail until it is configured (one of: ${VALID_IG_PROVIDERS.join(', ')}).`)
+} else if (!VALID_IG_PROVIDERS.includes(igProvider)) {
+  console.warn(`[Env] INSTAGRAM_PROVIDER="${igProvider}" is not recognized. Add Account will fail. Valid values: ${VALID_IG_PROVIDERS.join(', ')}.`)
+} else {
+  console.log(`[Env] INSTAGRAM_PROVIDER: ${igProvider}`)
+}
