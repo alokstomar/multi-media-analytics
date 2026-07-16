@@ -47,3 +47,14 @@
 @utility stagger-6 { animation-delay: 0.3s; }
 @utility stagger-7 { animation-delay: 0.35s; }
 @utility stagger-8 { animation-delay: 0.4s; }
+
+@utility scrollbar-hide {
+  /* IE and Edge */
+  -ms-overflow-style: none;
+  /* Firefox */
+  scrollbar-width: none;
+  /* Chrome, Safari and Opera */
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

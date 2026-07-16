@@ -251,7 +251,7 @@ function AccountCard({ account, isActive, onSelect, onDisconnect }) {
       exit={{ opacity: 0, x: -24, scale: 0.95 }}
       transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
       onClick={() => onSelect(account.id)}
-      className={`group relative shrink-0 w-[260px] rounded-2xl border-2 p-4 cursor-pointer transition-all duration-200 ${
+      className={`group relative shrink-0 w-[260px] rounded-2xl border-2 p-4 cursor-pointer transition-all duration-200 snap-start ${
         isActive
           ? 'border-purple-500 bg-purple-50/50 shadow-md shadow-purple-100'
           : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-sm'
@@ -502,7 +502,7 @@ export default function AccountCarousel() {
         {realAccounts.length === 0 ? (
           <EmptyState onConnect={openAddModal} connecting={connecting} error={addError} />
         ) : (
-          <div className="flex items-center gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory scrollbar-hide">
             <AnimatePresence mode="popLayout" initial={false}>
               {realAccounts.map((account) => (
                 <AccountCard
