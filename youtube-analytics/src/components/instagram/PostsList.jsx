@@ -353,7 +353,31 @@ export default function PostsList() {
           const tb = b.publishDate ? new Date(b.publishDate).getTime() : 0
           return tb - ta
         })
-        setPosts(data)
+        const normalized = data.map(p => {
+          const reach = p.reach !== undefined ? p.reach : (p.views || 0)
+          const likes = p.likes || 0
+          const comments = p.comments || 0
+          const code = p.rawPayload?.media?.code || p.code || p.reelId || ''
+          return {
+            ...p,
+            id: p._id || p.reelId,
+            thumbnail: p.thumbnail || 
+              p.rawPayload?.media?.image_versions2?.candidates?.[0]?.url || 
+              p.rawPayload?.image_versions2?.candidates?.[0]?.url || 
+              p.rawPayload?.media?.image_versions2?.candidates?.[0]?.url_wrapped || 
+              p.rawPayload?.image_versions2?.candidates?.[0]?.url_wrapped,
+            caption: p.caption || (code ? `Instagram Post (${code})` : 'Instagram Post'),
+            type: p.type || (p.mediaType === 'Video' ? 'Reel' : (p.mediaType === 'Image' ? 'Story' : (p.mediaType || 'Post'))),
+            reach,
+            publishedAt: p.publishedAt ? p.publishedAt : p.publishDate,
+            saves: p.saves || p.rawPayload?.media?.save_count || p.rawPayload?.save_count || 0,
+            shares: p.shares || p.rawPayload?.media?.reshare_count || p.rawPayload?.reshare_count || 0,
+            engagementRate: p.engagementRate !== undefined 
+              ? p.engagementRate 
+              : (reach > 0 ? ((likes + comments) / reach) * 100 : 0)
+          }
+        })
+        setPosts(normalized)
       } catch (err) {
         const msg =
           err.response?.data?.error ||
