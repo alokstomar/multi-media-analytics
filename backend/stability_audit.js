@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import './config/dns.js'
 import mongoose from 'mongoose'
 import { connectDB } from './config/db.js'
 import { getRedisClient, checkRedisAvailable } from './config/redis.js'
