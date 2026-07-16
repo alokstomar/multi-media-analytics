@@ -6,7 +6,9 @@ const CACHE_TTL = parseInt(process.env.CACHE_TTL_REELS || '1800')
 
 export const reelsService = {
   /**
-   * Sync and fetch Reels for a given username
+   * Sync and fetch Reels for a given username.
+   * Uses MongoDB-first caching when Redis is unavailable to prevent timeouts.
+   *
    * @param {string} username 
    * @param {string} workspaceId 
    * @param {boolean} forceSync 
@@ -15,6 +17,7 @@ export const reelsService = {
   async getReels(username, workspaceId, forceSync = false) {
     const cacheKey = `ig:reels:${workspaceId}:${username}`
     
+    // ── Step 1: Check Redis cache first ────────────────────────────
     if (!forceSync) {
       const cached = await cacheService.get(cacheKey)
       if (cached) {
@@ -23,9 +26,33 @@ export const reelsService = {
       }
     }
 
+    // ── Step 2: Serve from MongoDB if not forceSyncing and records exist ──
+    if (!forceSync) {
+      const existing = await InstagramReel.find({ username, workspaceId })
+        .sort({ publishDate: -1 })
+        .lean()
+      if (existing.length > 0) {
+        console.log(`[ReelsService] Returning ${existing.length} reels from MongoDB for ${username}`)
+        return existing
+      }
+    }
+
+    // ── Step 3: Fetch from provider ────────────────────────────────
+    console.log(`[ReelsService] Fetching real Reels from provider for: ${username}`)
     const provider = providerFactory.getProvider()
     const providerName = process.env.INSTAGRAM_PROVIDER || 'mock'
-    const reelsData = await provider.getReels(username)
+    
+    let reelsData = []
+    try {
+      reelsData = await provider.getReels(username)
+    } catch (err) {
+      console.warn(`[ReelsService] Provider error for ${username}: ${err.message}`)
+      // Fallback to existing MongoDB data on failure so the page doesn't break
+      const fallback = await InstagramReel.find({ username, workspaceId })
+        .sort({ publishDate: -1 })
+        .lean()
+      return fallback
+    }
 
     // Save/upsert reels in the DB under workspaceId isolation
     const savedReels = []
@@ -50,9 +77,10 @@ export const reelsService = {
       savedReels.push(reel)
     }
 
-    // Cache the resulting Reels list
+    // Cache the resulting Reels list in Redis
     await cacheService.set(cacheKey, savedReels, CACHE_TTL)
 
     return savedReels
   }
 }
+
