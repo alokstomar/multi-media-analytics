@@ -649,6 +649,66 @@ export default class RapidApiProvider extends InstagramProvider {
     return allComments
   }
 
+  /**
+   * Fetch comments via POST for instagram120.p.rapidapi.com host.
+   * The host accepts: POST /api/instagram/comments { media_id: "..." }
+   * with optional maxId for pagination.
+   * On any error, returns [] (no mock fallback).
+   */
+  async _fetchAllCommentsPost(reelId) {
+    const allComments = []
+    let cursor = ''
+    let pagesFetched = 0
+
+    // Use only the numeric prefix, same as _fetchAllComments
+    const mediaId = String(reelId).split('_')[0]
+
+    while (pagesFetched < this.maxPages) {
+      const bodyData = { media_id: mediaId }
+      if (cursor) bodyData.maxId = cursor
+
+      let body
+      try {
+        body = await this._httpPost('/api/instagram/comments', bodyData, `getComments.page[${pagesFetched}]`)
+      } catch (err) {
+        if (allComments.length > 0) {
+          // Partial result is fine — pagination error on subsequent page
+          this._logDebug(`getComments[instagram120] pagination error at page ${pagesFetched}`, err.message)
+          break
+        }
+        // First page failed. Log a warning and return [] — do NOT fabricate data.
+        console.warn(`[RapidApiProvider] instagram120 /api/instagram/comments failed for media_id ${mediaId}: ${err.message}`)
+        return []
+      }
+
+      const items = this._extractCommentItems(body)
+      if (items === null) {
+        // API returned a response but with no recognisable comments array.
+        // Could be an empty post or an unsupported shape. Return what we have.
+        this._logDebug(`getComments[instagram120] no items array found on page ${pagesFetched}`, body)
+        break
+      }
+      for (const item of items) {
+        const parsed = this._parseCommentItem(item)
+        if (parsed) allComments.push(parsed)
+      }
+
+      // instagram120 uses page_info.end_cursor / has_next_page like the reels endpoint
+      const nextHasPage = this._getPath(body, 'result.page_info.has_next_page')
+      const nextCursor  = this._getPath(body, 'result.page_info.end_cursor')
+      if (!nextHasPage || !nextCursor || nextCursor === cursor) break
+      cursor = nextCursor
+      pagesFetched++
+    }
+
+    if (pagesFetched >= this.maxPages) {
+      this._logDebug(`getComments[instagram120] reached MAX_PAGES safety cap`, {
+        reelId, pagesFetched, commentsCount: allComments.length,
+      })
+    }
+    return allComments
+  }
+
   // ──────────────────────────────────────────────────────────────────────
   // /analytics — derived-result builder. Aggregation only; no parsing.
   // ──────────────────────────────────────────────────────────────────────
@@ -725,8 +785,8 @@ export default class RapidApiProvider extends InstagramProvider {
       throw new Error('RapidApiProvider not configured: RAPIDAPI_KEY or RAPIDAPI_HOST missing')
     }
     if (this._isInstagram120()) {
-      this._logDebug('getComments called but not supported by instagram120 host; returning empty list', { reelId })
-      return []
+      // instagram120 host supports comments via POST /api/instagram/comments
+      return this._fetchAllCommentsPost(reelId)
     }
     return this._fetchAllComments(reelId)
   }

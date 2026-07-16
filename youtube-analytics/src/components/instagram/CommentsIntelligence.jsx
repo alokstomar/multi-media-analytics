@@ -396,35 +396,54 @@ export default function CommentsIntelligence() {
           toxic: formatted.filter((c) => c.isToxic).length,
         }
 
-        const insights = [
-          {
-            title: 'Overall Sentiment Positive',
-            desc: `${total ? ((posCount / total) * 100).toFixed(0) : 0}% of comments show positive engagement. Reach is strong.`,
+        // ── Compute insights from real data only ─────────────────
+        // Only produce insight cards when there is real comment data.
+        // Never fabricate sentiment percentages from zero comments.
+        const insights = []
+        if (total > 0) {
+          const posPct = ((posCount / total) * 100).toFixed(0)
+          insights.push({
+            title: `Sentiment: ${posPct}% positive`,
+            desc: `${posCount} of ${total} analyzed comments are positive.`,
             bg: 'bg-emerald-50',
             textColor: 'text-emerald-800',
-          },
-          {
-            title: 'FAQ content opportunity',
-            desc: `${tabCounts.questions} questions found. Consider creating a post addressing them.`,
-            bg: 'bg-blue-50',
-            textColor: 'text-blue-800',
-            extra: `+${tabCounts.questions}`,
-          },
-        ]
-        if (tabCounts.toxic > 0) {
-          insights.push({
-            title: 'Toxic Comments Flagged',
-            desc: `${tabCounts.toxic} comments have been flagged as toxic or negative. Consider filtering.`,
-            bg: 'bg-amber-50',
-            textColor: 'text-amber-800',
           })
+
+          const qCount = tabCounts.questions
+          if (qCount >= 1) {
+            insights.push({
+              title: 'Questions from your audience',
+              desc: `${qCount} question-style comments detected. Consider a dedicated post addressing them.`,
+              bg: 'bg-blue-50',
+              textColor: 'text-blue-800',
+              extra: `+${qCount}`,
+            })
+          }
+
+          if (tabCounts.toxic > 0) {
+            const toxPct = ((tabCounts.toxic / total) * 100).toFixed(1)
+            insights.push({
+              title: `Toxicity rate: ${toxPct}%`,
+              desc: `${tabCounts.toxic} comments flagged for review.`,
+              bg: toxPct > 5 ? 'bg-red-50' : 'bg-amber-50',
+              textColor: toxPct > 5 ? 'text-red-800' : 'text-amber-800',
+            })
+          }
+
+          const negCount2 = negCount
+          if (negCount2 > posCount * 0.3 && negCount2 >= 3) {
+            insights.push({
+              title: 'Negative sentiment spike',
+              desc: `${negCount2} negative comments detected — review recent posts for audience friction.`,
+              bg: 'bg-red-50',
+              textColor: 'text-red-800',
+            })
+          }
         }
 
-        const replySuggestions = [
-          'Thanks for sharing! We appreciate the feedback.',
-          'Glad you liked it! Stay tuned for more.',
-          'Great question! We will address this in our next update.',
-        ]
+        // No hardcoded reply suggestions — replySuggestions is always empty.
+        // The 'Suggested Replies' panel only renders when replies.length > 0.
+        const replySuggestions = []
 
         setSyncStatus({
           totalCached: total,

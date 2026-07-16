@@ -4,7 +4,6 @@ import InstagramReel from '../../models/InstagramReel.js'
 import InstagramComment from '../../models/InstagramComment.js'
 import { providerFactory } from './providerFactory.js'
 import { cacheService } from './cacheService.js'
-import { getAIProvider } from '../ai/index.js'
 
 const CACHE_TTL_PROFILE = parseInt(process.env.CACHE_TTL_PROFILE || '3600')
 
@@ -208,79 +207,96 @@ export const analyticsService = {
   },
 
   /**
-   * Manually trigger AI recommendations generation.
-   * Leverages the existing OpenAI AI Provider architecture with structured stubs.
+   * Compute Instagram analytics insights from real MongoDB data.
+   * 
+   * This function NEVER fabricates numbers.
+   * Every value is computed from actual stored documents.
+   * If data is insufficient, fields return null or empty arrays.
+   *
    * @param {string} username 
    * @param {string} workspaceId 
    */
   async generateAIRecommendations(username, workspaceId) {
-    console.log(`[AnalyticsService] Triggering AI Analysis for: ${username}`)
-    
-    // Fetch latest context from database
-    const profile = await InstagramProfile.findOne({ username, workspaceId })
-    const reels = await InstagramReel.find({ username, workspaceId }).sort({ views: -1 }).limit(5)
-    
-    // Compile context description for OpenAI prompt
-    const profileContext = profile 
-      ? `Profile followers: ${profile.followers}, Following: ${profile.following}, Posts count: ${profile.postsCount}.`
-      : 'Profile stats unavailable.'
-    
-    const reelsContext = reels.map(r => `Reel "${r.caption.substring(0, 30)}..." has ${r.views} views, ${r.likes} likes, and ${r.comments} comments.`).join('\n')
-    
-    const prompt = `Perform Instagram Creator Audit:\n${profileContext}\nTop Reels:\n${reelsContext}\nReturn structured recommendations.`
+    console.log(`[AnalyticsService] Computing real analytics for: ${username}`)
 
-    const ai = getAIProvider()
-    let responseText = ''
-    
-    try {
-      // Connects directly to OpenAI stub fallback structure. 
-      // If generateContentIdeas method exists, let's call it to get mock/AI suggestions.
-      if (typeof ai.generateContentIdeas === 'function') {
-        const ideas = await ai.generateContentIdeas('Instagram Reels Creator', prompt)
-        responseText = JSON.stringify(ideas)
-      }
-    } catch (err) {
-      console.warn(`[AnalyticsService] AI Generation call failed: ${err.message}. Using built-in engine analysis.`)
+    // Fetch real data from MongoDB
+    const profile = await InstagramProfile.findOne({ username, workspaceId }).lean()
+    const reels = await InstagramReel.find({ username, workspaceId })
+      .sort({ views: -1 })
+      .limit(10)
+      .lean()
+
+    // Fetch ALL comments for this account's reels
+    const reelIds = reels.map(r => r.reelId)
+    const allComments = reelIds.length
+      ? await InstagramComment.find({ reelId: { $in: reelIds }, workspaceId }).lean()
+      : []
+
+    // Sentiment breakdown from real comments
+    const total = allComments.length
+    const positive = allComments.filter(c => c.sentiment === 'positive').length
+    const negative = allComments.filter(c => c.sentiment === 'negative').length
+    const neutral = total - positive - negative
+    const questions = allComments.filter(c => c.category === 'question').length
+    const contentRequests = allComments.filter(c => c.category === 'content_request').length
+
+    const sentimentAnalysis = total > 0
+      ? {
+          summary: `Based on ${total} real comments synced from Instagram.`,
+          ratio: {
+            positive: parseFloat(((positive / total) * 100).toFixed(1)),
+            neutral:  parseFloat(((neutral  / total) * 100).toFixed(1)),
+            negative: parseFloat(((negative / total) * 100).toFixed(1)),
+          },
+          totalComments: total,
+          questionCount: questions,
+          contentRequestCount: contentRequests,
+        }
+      : null
+
+    // Top reels by engagement
+    const topReels = reels.slice(0, 5).map(r => ({
+      reelId: r.reelId,
+      caption: (r.caption || '').slice(0, 80),
+      views: r.views || 0,
+      likes: r.likes || 0,
+      comments: r.comments || 0,
+      publishDate: r.publishDate,
+    }))
+
+    // Profile stats
+    const profileStats = profile
+      ? {
+          followers: profile.followers || 0,
+          following: profile.following || 0,
+          postsCount: profile.postsCount || 0,
+          engagementRate: null, // computed below if possible
+        }
+      : null
+
+    if (profileStats && reels.length > 0) {
+      const totalLikes = reels.reduce((s, r) => s + (r.likes || 0), 0)
+      const totalComments = reels.reduce((s, r) => s + (r.comments || 0), 0)
+      const avgEngagement = (totalLikes + totalComments) / reels.length
+      profileStats.engagementRate = profileStats.followers > 0
+        ? parseFloat(((avgEngagement / profileStats.followers) * 100).toFixed(2))
+        : null
     }
 
-    // High fidelity framework response matching the 5 required analysis areas
     return {
       username,
       analysisDate: new Date(),
-      sentimentAnalysis: {
-        summary: "Predominantly positive audience affinity (84%). Positive feedback centers around deep-dive technical blueprint explanations. Minor critical sentiment (6%) regarding execution difficulty on older setups.",
-        keyKeywords: ["leverage", "SaaS startup", "genius code", "controversial blueprint"],
-        ratio: { positive: 84, neutral: 10, negative: 6 }
-      },
-      contentGapAnalysis: {
-        opportunityScore: 89,
-        gapDescription: "High audience search volume is building for 'Full-stack AI automation architectures'. Existing creators are publishing vague overviews. There is a wide open content gap for multi-tenant code tutorials.",
-        topicsToTarget: [" BullMQ background worker setups", "Secure HttpOnly JWT workflows", "Express middleware isolation patterns"]
-      },
-      competitorAnalysis: {
-        saturationLevel: "Medium-Low",
-        competitorPerformance: "Top competitors are averaging 250K views on Reels but lack coding walkthroughs. Adding repo links in comments boosts engagement metrics by +42%.",
-        recommendedEdge: "Deliver complete, downloadable boilerplate repositories via Github links to stand out from non-technical content creators."
-      },
-      viralPatternDetection: {
-        topFactors: ["Code IDE screens shown in the first 3 seconds (increases hook rate by 2.4x)", "Adding controversial industry hot takes in the middle segment", "Upbeat tech/lofi background tracks"],
-        recommendedPacing: "Fast hook (0-3s) -> problem setup (3-12s) -> code structure (12-40s) -> clean call-to-action (40-45s)"
-      },
-      nextReelRecommendations: [
-        {
-          title: "Stop storing JWT in localStorage! 🛑",
-          hook: "Most developers get authentication wrong. Here is how I secured my SaaS app using HttpOnly cookies...",
-          description: "Show a screen-split of a hacker stealing localStorage tokens vs. secure cookie headers. Keep visual focus on code snippets.",
-          estimatedEngagement: "Very High"
-        },
-        {
-          title: "Multi-tenant database design in 45 seconds 💻",
-          hook: "How to isolate data for 100+ workspaces using a single Mongoose database query...",
-          description: "Animate a schema layout drawing showing workspaceId indexing. Keep code font large and readable.",
-          estimatedEngagement: "High"
-        }
-      ],
-      aiProviderResponseStub: responseText || "Framework proxy successful."
+      dataSource: 'mongodb',
+      totalCommentsAnalyzed: total,
+      totalReelsAnalyzed: reels.length,
+      sentimentAnalysis,
+      topReels: topReels.length > 0 ? topReels : null,
+      profileStats,
+      // These sections require AI provider integration and are not fabricated
+      contentGapAnalysis: null,
+      competitorAnalysis: null,
+      viralPatternDetection: null,
+      nextReelRecommendations: [],
     }
   }
 }
