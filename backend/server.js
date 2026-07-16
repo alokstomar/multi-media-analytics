@@ -51,6 +51,14 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() })
 })
 
+app.get('/api/debug/provider', (req, res) => {
+  res.json({
+    provider: process.env.INSTAGRAM_PROVIDER,
+    host: process.env.RAPIDAPI_HOST,
+    cwd: process.cwd()
+  })
+})
+
 // DB diagnostic endpoint (also bypasses verifyDbConnected so it can report
 // state DURING a connection outage). Returns connection state only — never
 // the URI or credentials. ?reconnect=1 forces a fresh attempt and captures
