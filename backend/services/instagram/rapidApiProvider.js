@@ -36,6 +36,7 @@ const REEL_ITEMS_ARRAY_CANDIDATES = [
   'data.items', 'data.reels', 'data.media',
   'result.items', 'result.reels', 'result.media',
   'graphql.user.edge_owner_to_timeline_media.edges',
+  'result.edges', 'edges'
 ]
 
 const REEL_FIELD_CANDIDATES = {
@@ -131,6 +132,10 @@ export default class RapidApiProvider extends InstagramProvider {
     return !!(this.apiKey && this.host)
   }
 
+  _isInstagram120() {
+    return this.host && (this.host === 'instagram120.p.rapidapi.com' || this.host.includes('instagram120'));
+  }
+
   _getHeaders() {
     return {
       'x-rapidapi-key': this.apiKey,
@@ -195,6 +200,33 @@ export default class RapidApiProvider extends InstagramProvider {
       throw this._wrapError(err, op)
     }
     this._logDebug(`GET ${op} response`, response.data)
+    return response.data
+  }
+
+  // Shared HTTP POST helper for endpoints requiring POST routing (e.g. instagram120.p.rapidapi.com).
+  async _httpPost(path, bodyData, op) {
+    // Respect API rate limit: wait 1000ms before each HTTP request
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    const url = `https://${this.host}${path}`
+    this._logDebug(`POST ${op} request`, { url, body: bodyData })
+    let response
+    try {
+      response = await axios.post(url, bodyData, {
+        headers: {
+          ...this._getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000,
+      })
+    } catch (err) {
+      this._logDebug(`POST ${op} error`, {
+        status: err.response?.status,
+        body: err.response?.data,
+      })
+      throw this._wrapError(err, op)
+    }
+    this._logDebug(`POST ${op} response`, response.data)
     return response.data
   }
 
@@ -517,6 +549,49 @@ export default class RapidApiProvider extends InstagramProvider {
     return allReels
   }
 
+  async _fetchAllReelsPost(username) {
+    const allReels = []
+    let cursor = ''
+    let pagesFetched = 0
+
+    while (pagesFetched < this.maxPages) {
+      const bodyData = { username }
+      if (cursor) {
+        bodyData.maxId = cursor
+      }
+
+      const body = await this._httpPost('/api/instagram/reels', bodyData, `getReels.page[${pagesFetched}]`)
+      const items = this._extractReelItems(body)
+      if (items === null) {
+        throw new Error(
+          `RapidApiProvider.getReels: could not extract items array from ` +
+          `/api/instagram/reels response for username "${username}" on page ${pagesFetched}. ` +
+          `Checked candidate paths: ${REEL_ITEMS_ARRAY_CANDIDATES.join(', ')}. ` +
+          `Enable DEBUG_RAPIDAPI=true to inspect the raw payload logged as ` +
+          `"POST getReels.page[N] response".`
+        )
+      }
+      for (const item of items) {
+        const parsed = this._parseReelItem(item)
+        if (parsed) allReels.push(parsed)
+      }
+
+      const nextHasPage = this._getPath(body, 'result.page_info.has_next_page')
+      const nextCursor = this._getPath(body, 'result.page_info.end_cursor')
+      
+      if (!nextHasPage || !nextCursor || nextCursor === cursor) break
+      cursor = nextCursor
+      pagesFetched++
+    }
+
+    if (pagesFetched >= this.maxPages) {
+      this._logDebug(`getReels reached MAX_PAGES safety cap`, {
+        username, pagesFetched, reelsCount: allReels.length,
+      })
+    }
+    return allReels
+  }
+
   async _fetchAllComments(reelId) {
     const allComments = []
     let cursor = null
@@ -606,6 +681,16 @@ export default class RapidApiProvider extends InstagramProvider {
     if (!this._isConfigured()) {
       throw new Error('RapidApiProvider not configured: RAPIDAPI_KEY or RAPIDAPI_HOST missing')
     }
+    if (this._isInstagram120()) {
+      const body = await this._httpPost(
+        '/api/instagram/profile',
+        { username },
+        'getProfile.profile'
+      )
+      const userId = this._firstByPath(body, USER_ID_CANDIDATES) || ''
+      return this._buildProfileResult(body, username, userId)
+    }
+
     const userId = await this._resolveUserId(username)
     const body = await this._httpGet(
       '/profile',
@@ -619,6 +704,9 @@ export default class RapidApiProvider extends InstagramProvider {
     if (!this._isConfigured()) {
       throw new Error('RapidApiProvider not configured: RAPIDAPI_KEY or RAPIDAPI_HOST missing')
     }
+    if (this._isInstagram120()) {
+      return this._fetchAllReelsPost(username)
+    }
     const userId = await this._resolveUserId(username)
     return this._fetchAllReels(userId)
   }
@@ -626,6 +714,10 @@ export default class RapidApiProvider extends InstagramProvider {
   async getComments(reelId) {
     if (!this._isConfigured()) {
       throw new Error('RapidApiProvider not configured: RAPIDAPI_KEY or RAPIDAPI_HOST missing')
+    }
+    if (this._isInstagram120()) {
+      this._logDebug('getComments called but not supported by instagram120 host; returning empty list', { reelId })
+      return []
     }
     return this._fetchAllComments(reelId)
   }
@@ -648,11 +740,19 @@ export default class RapidApiProvider extends InstagramProvider {
       }
     }
     try {
-      await this._httpGet(
-        '/user_id_by_username',
-        { username: 'instagram' },
-        'healthCheck'
-      )
+      if (this._isInstagram120()) {
+        await this._httpPost(
+          '/api/instagram/profile',
+          { username: 'instagram' },
+          'healthCheck'
+        )
+      } else {
+        await this._httpGet(
+          '/user_id_by_username',
+          { username: 'instagram' },
+          'healthCheck'
+        )
+      }
       return { status: 'healthy', provider: 'rapidapi' }
     } catch (err) {
       return {
