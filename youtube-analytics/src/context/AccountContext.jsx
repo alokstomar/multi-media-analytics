@@ -181,7 +181,7 @@ export function AccountProvider({ children }) {
             p.rawPayload?.media?.image_versions2?.candidates?.[0]?.url_wrapped || 
             p.rawPayload?.image_versions2?.candidates?.[0]?.url_wrapped,
           caption: p.caption || (code ? `Instagram Post (${code})` : 'Instagram Post'),
-          type: p.type || (p.mediaType === 'Video' ? 'Reel' : (p.mediaType === 'Image' ? 'Story' : (p.mediaType || 'Post'))),
+          type: p.type || (p.mediaType === 'Video' ? 'Reel' : (p.mediaType === 'Image' || p.mediaType === 'Sidecar' || p.mediaType === 'Carousel' ? 'Post' : (p.mediaType || 'Post'))),
           reach,
           publishedAt: p.publishedAt ? p.publishedAt : p.publishDate,
           saves: p.saves || p.rawPayload?.media?.save_count || p.rawPayload?.save_count || 0,
