@@ -29,8 +29,10 @@ const APIFY_BASE = 'https://api.apify.com/v2'
 // Tunables — kept conservative to stay inside the FREE plan per sync.
 // Override via env if a workspace needs more.
 const PROFILE_RESULTS_LIMIT = 1
-const REELS_RESULTS_LIMIT = parseInt(process.env.APIFY_REELS_LIMIT || '20', 10)
-const COMMENTS_RESULTS_LIMIT = parseInt(process.env.APIFY_COMMENTS_LIMIT || '30', 10)
+const REELS_RESULTS_LIMIT = parseInt(process.env.APIFY_REELS_LIMIT || '50', 10)
+const COMMENTS_RESULTS_LIMIT = process.env.APIFY_COMMENTS_LIMIT === '0' || process.env.APIFY_COMMENTS_LIMIT === 'all'
+  ? undefined
+  : parseInt(process.env.APIFY_COMMENTS_LIMIT || '1000', 10)
 
 // Apify sync endpoint takes a `timeout` (seconds) for how long to wait
 // before returning a 202 if the run is still going. We set it high enough
@@ -287,11 +289,15 @@ export default class ApifyProvider extends InstagramProvider {
       }
     }
 
-    const items = await this._runActor({
+    const input = {
       directUrls: [`https://www.instagram.com/p/${shortCode}/`],
       resultsType: 'comments',
-      resultsLimit: COMMENTS_RESULTS_LIMIT,
-    }, 'getComments')
+    }
+    if (COMMENTS_RESULTS_LIMIT) {
+      input.resultsLimit = COMMENTS_RESULTS_LIMIT
+    }
+
+    const items = await this._runActor(input, 'getComments')
 
     const out = []
     for (const item of items) {
