@@ -15,7 +15,7 @@ console.log(`[Env] Loaded environment configuration from: ${envPath}`)
 // Instagram provider must be configured explicitly — there is no implicit
 // 'mock' default. Surface misconfigurations at startup so they're impossible
 // to miss in the logs.
-const VALID_IG_PROVIDERS = ['rapidapi', 'meta', 'mock']
+const VALID_IG_PROVIDERS = ['apify', 'meta', 'mock']
 const igProvider = (process.env.INSTAGRAM_PROVIDER || '').trim().toLowerCase()
 if (!igProvider) {
   console.warn(`[Env] INSTAGRAM_PROVIDER is not set. Add Account will fail until it is configured (one of: ${VALID_IG_PROVIDERS.join(', ')}).`)

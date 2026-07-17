@@ -1,8 +1,8 @@
 import MockProvider from './mockProvider.js'
-import RapidApiProvider from './rapidApiProvider.js'
 import MetaProvider from './metaProvider.js'
+import ApifyProvider from './apifyProvider.js'
 
-const VALID_PROVIDERS = ['rapidapi', 'meta', 'mock']
+const VALID_PROVIDERS = ['apify', 'meta', 'mock']
 
 let activeInstance = null
 
@@ -50,8 +50,8 @@ export const providerFactory = {
     const providerType = resolveProviderType()
 
     switch (providerType) {
-      case 'rapidapi':
-        activeInstance = new RapidApiProvider()
+      case 'apify':
+        activeInstance = new ApifyProvider()
         break
       case 'meta':
         activeInstance = new MetaProvider()

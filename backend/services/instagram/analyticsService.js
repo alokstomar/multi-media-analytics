@@ -134,11 +134,9 @@ export const analyticsService = {
     //    abort the sync or set syncStatus="error". Profile, reels, and analytics
     //    always complete regardless of comments outcome.
     //
-    //    If the configured provider host does not support comments at all
-    //    (e.g. instagram120.p.rapidapi.com is a download-link extractor with
-    //    no comments endpoint), skip the loop entirely instead of making
-    //    three doomed calls that previously pushed syncAll past the
-    //    frontend's 60s timeout.
+    //    If the configured provider does not support comments at all (the
+    //    supportsComments() contract returns false), skip the loop entirely
+    //    instead of making doomed calls.
     const commentWarnings = []
     let commentsSupported = true
     const provider = providerFactory.getProvider()
@@ -146,12 +144,12 @@ export const analyticsService = {
       commentsSupported = false
       console.warn(
         `[AnalyticsService] Comments skipped for @${username}: current provider ` +
-        `(${process.env.RAPIDAPI_HOST || process.env.INSTAGRAM_PROVIDER}) does not support comments.`
+        `(${process.env.INSTAGRAM_PROVIDER}) does not support comments.`
       )
       commentWarnings.push({
         reelId: null,
         code: 'COMMENTS_NOT_SUPPORTED',
-        error: 'Comments are not supported by the configured RapidAPI host.',
+        error: 'Comments are not supported by the configured provider.',
       })
     } else {
       for (let i = 0; i < Math.min(savedReels.length, 3); i++) {
@@ -174,7 +172,7 @@ export const analyticsService = {
                 text: c.text,
                 author: c.author,
                 sentiment,
-                provider: process.env.INSTAGRAM_PROVIDER || 'rapidapi',
+                provider: process.env.INSTAGRAM_PROVIDER || 'apify',
                 providerVersion: 'v1',
                 syncedAt: new Date(),
                 rawPayload: c.rawPayload || {}

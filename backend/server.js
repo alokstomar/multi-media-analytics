@@ -54,7 +54,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/debug/provider', (req, res) => {
   res.json({
     provider: process.env.INSTAGRAM_PROVIDER,
-    host: process.env.RAPIDAPI_HOST,
+    actorId: process.env.APIFY_TOKEN ? 'apify~instagram-scraper' : null,
     cwd: process.cwd()
   })
 })
