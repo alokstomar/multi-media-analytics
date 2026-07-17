@@ -565,8 +565,10 @@ export const disconnectAccount = (id) =>
 export const getInstagramAccounts = () =>
   api.get('/api/instagram/accounts').then((r) => r.data)
 
+// Apify run-sync typically takes 20-90s for a profile fetch.
+// Use CHANNEL_TIMEOUT (60s) so the browser does not abort prematurely.
 export const addInstagramAccount = (username) =>
-  api.post(`/api/instagram/accounts/${username}`).then((r) => r.data)
+  api.post(`/api/instagram/accounts/${username}`, {}, { timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const deleteInstagramAccount = (username) =>
   api.delete(`/api/instagram/accounts/${username}`).then((r) => r.data)
