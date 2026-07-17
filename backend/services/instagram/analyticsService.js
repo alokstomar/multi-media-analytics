@@ -70,10 +70,28 @@ export const analyticsService = {
       }
 
       // MongoDB-first check: return latest snapshot if it exists
-      const existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
+      let existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
         .sort({ snapshotDate: -1 })
         .lean()
       if (existing) {
+        const profile = await InstagramProfile.findOne({ username, workspaceId, deletedAt: null }).lean()
+        if (profile && (existing.followers !== profile.followers || existing.postsCount !== profile.postsCount)) {
+          console.log(`[AnalyticsService] Syncing snapshot metrics dynamically with profile fields for: ${username}`)
+          
+          const followers = profile.followers || 0
+          const postsCount = profile.postsCount || existing.postsCount
+          const engagementRate = followers > 0
+            ? parseFloat((((existing.averageLikes + existing.averageComments) / followers) * 100).toFixed(2))
+            : 0
+
+          const updated = await InstagramAnalyticsSnapshot.findOneAndUpdate(
+            { _id: existing._id },
+            { $set: { followers, postsCount, engagementRate } },
+            { new: true }
+          ).lean()
+          existing = updated
+        }
+
         console.log(`[AnalyticsService] Returning latest MongoDB snapshot for: ${username}`)
         await cacheService.set(cacheKey, existing, CACHE_TTL_PROFILE)
         return existing
@@ -89,11 +107,29 @@ export const analyticsService = {
     } catch (err) {
       console.warn(`[AnalyticsService] Provider error for ${username}: ${err.message}`)
 
-      // Fallback 1: Return latest MongoDB snapshot
-      const existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
+      // Fallback 1: Return latest MongoDB snapshot (with dynamic profile synchronization)
+      let existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
         .sort({ snapshotDate: -1 })
         .lean()
       if (existing) {
+        const profile = await InstagramProfile.findOne({ username, workspaceId, deletedAt: null }).lean()
+        if (profile && (existing.followers !== profile.followers || existing.postsCount !== profile.postsCount)) {
+          console.log(`[AnalyticsService] Syncing snapshot metrics dynamically with profile fields on provider fallback for: ${username}`)
+          
+          const followers = profile.followers || 0
+          const postsCount = profile.postsCount || existing.postsCount
+          const engagementRate = followers > 0
+            ? parseFloat((((existing.averageLikes + existing.averageComments) / followers) * 100).toFixed(2))
+            : 0
+
+          const updated = await InstagramAnalyticsSnapshot.findOneAndUpdate(
+            { _id: existing._id },
+            { $set: { followers, postsCount, engagementRate } },
+            { new: true }
+          ).lean()
+          existing = updated
+        }
+
         console.log(`[AnalyticsService] Fallback: returning latest MongoDB snapshot after provider error`)
         await cacheService.set(cacheKey, existing, CACHE_TTL_PROFILE)
         return existing
