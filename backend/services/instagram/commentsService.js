@@ -1,4 +1,5 @@
 import InstagramComment from '../../models/InstagramComment.js'
+import InstagramReel from '../../models/InstagramReel.js'
 import { providerFactory } from './providerFactory.js'
 
 const PROVIDER_NAME = () => process.env.INSTAGRAM_PROVIDER || 'rapidapi'
@@ -64,14 +65,25 @@ export const commentsService = {
    * @param {boolean} forceSync  true = re-fetch from provider even if DB has data
    */
   async getComments(reelId, workspaceId, forceSync = false) {
+    let targetReelId = reelId
+    if (reelId && String(reelId).includes('_')) {
+      const reelDoc = await InstagramReel.findOne({ reelId, workspaceId }).lean().catch(() => null)
+      const code = reelDoc?.rawPayload?.media?.code || reelDoc?.rawPayload?.code
+      if (code) {
+        targetReelId = code
+      }
+    }
+
+    const reelIdsToMatch = Array.from(new Set([reelId, targetReelId].filter(Boolean)))
+
     // ── Step 1: Serve from MongoDB unless force-syncing ────────────
     if (!forceSync) {
-      const existing = await InstagramComment.find({ reelId, workspaceId })
+      const existing = await InstagramComment.find({ reelId: { $in: reelIdsToMatch }, workspaceId })
         .sort({ syncedAt: -1 })
         .lean()
 
       if (existing.length > 0) {
-        console.log(`[CommentsService] Returning ${existing.length} MongoDB comments for reel ${reelId}`)
+        console.log(`[CommentsService] Returning ${existing.length} MongoDB comments for reel ${targetReelId}`)
         return existing
       }
     }
@@ -86,22 +98,22 @@ export const commentsService = {
     // COMMENTS_NOT_SUPPORTED error — checking supportsComments() here
     // avoids the throw and the noise.
     if (typeof provider.supportsComments === 'function' && !provider.supportsComments()) {
-      console.log(`[CommentsService] Provider does not support comments — serving MongoDB only for reel ${reelId}`)
-      const existing = await InstagramComment.find({ reelId, workspaceId })
+      console.log(`[CommentsService] Provider does not support comments — serving MongoDB only for reel ${targetReelId}`)
+      const existing = await InstagramComment.find({ reelId: { $in: reelIdsToMatch }, workspaceId })
         .sort({ syncedAt: -1 })
         .lean()
       return existing
     }
 
-    console.log(`[CommentsService] Fetching real comments from provider for reel ${reelId}`)
+    console.log(`[CommentsService] Fetching real comments from provider for reel ${targetReelId}`)
 
     let commentsData = []
     try {
-      commentsData = await provider.getComments(reelId)
+      commentsData = await provider.getComments(targetReelId)
     } catch (err) {
-      console.warn(`[CommentsService] Provider error for reel ${reelId}: ${err.message}`)
+      console.warn(`[CommentsService] Provider error for reel ${targetReelId}: ${err.message}`)
       // Provider failed — return whatever MongoDB has (never fabricate)
-      const fallback = await InstagramComment.find({ reelId, workspaceId })
+      const fallback = await InstagramComment.find({ reelId: { $in: reelIdsToMatch }, workspaceId })
         .sort({ syncedAt: -1 })
         .lean()
       console.log(`[CommentsService] Fallback: returning ${fallback.length} MongoDB comments after provider error`)
@@ -109,8 +121,8 @@ export const commentsService = {
     }
 
     if (!commentsData.length) {
-      console.log(`[CommentsService] Provider returned 0 comments for reel ${reelId} — serving existing DB data`)
-      const fallback = await InstagramComment.find({ reelId, workspaceId })
+      console.log(`[CommentsService] Provider returned 0 comments for reel ${targetReelId} — serving existing DB data`)
+      const fallback = await InstagramComment.find({ reelId: { $in: reelIdsToMatch }, workspaceId })
         .sort({ syncedAt: -1 })
         .lean()
       return fallback
@@ -125,7 +137,7 @@ export const commentsService = {
         const comment = await InstagramComment.findOneAndUpdate(
           { commentId: item.commentId, workspaceId },
           {
-            reelId,
+            reelId: targetReelId,
             text: item.text,
             author: item.author,
             sentiment: item.sentiment || sentiment,
@@ -143,7 +155,7 @@ export const commentsService = {
       }
     }
 
-    console.log(`[CommentsService] Synced ${savedComments.length} real comments to MongoDB for reel ${reelId}`)
+    console.log(`[CommentsService] Synced ${savedComments.length} real comments to MongoDB for reel ${targetReelId}`)
     return savedComments
   },
 }

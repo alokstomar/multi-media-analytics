@@ -442,40 +442,6 @@ export default function CommentsIntelligence() {
               textColor: 'text-red-800',
             })
           }
-
-          try {
-            const aiSummaryData = await getInstagramCommentSummary(username)
-            if (aiSummaryData?.summary && !aiSummaryData?._fallback) {
-              insights.unshift({
-                title: 'AI Narrative Summary',
-                desc: aiSummaryData.summary,
-                bg: 'bg-purple-50',
-                textColor: 'text-purple-900',
-              })
-              if (Array.isArray(aiSummaryData.topRisks)) {
-                aiSummaryData.topRisks.forEach((r) => {
-                  insights.push({
-                    title: `Risk: ${r.title}`,
-                    desc: r.desc,
-                    bg: 'bg-red-50',
-                    textColor: 'text-red-800',
-                  })
-                })
-              }
-              if (Array.isArray(aiSummaryData.topOpportunities)) {
-                aiSummaryData.topOpportunities.forEach((o) => {
-                  insights.push({
-                    title: `Opportunity: ${o.title}`,
-                    desc: o.desc,
-                    bg: 'bg-emerald-50',
-                    textColor: 'text-emerald-800',
-                  })
-                })
-              }
-            }
-          } catch {
-            /* non-blocking AI summary fetch */
-          }
         }
 
         // No hardcoded reply suggestions — replySuggestions is always empty.
@@ -511,6 +477,53 @@ export default function CommentsIntelligence() {
           insights,
           replySuggestions,
         })
+
+        // ── Non-blocking Layer 2 DeepSeek AI summary (async background pass) ──
+        if (total > 0 && username) {
+          getInstagramCommentSummary(username)
+            .then((aiSummaryData) => {
+              if (aiSummaryData?.summary && !aiSummaryData?._fallback) {
+                setSummary((prev) => {
+                  if (!prev) return prev
+                  const extraInsights = [
+                    {
+                      title: 'AI Narrative Summary',
+                      desc: aiSummaryData.summary,
+                      bg: 'bg-purple-50',
+                      textColor: 'text-purple-900',
+                    },
+                  ]
+                  if (Array.isArray(aiSummaryData.topRisks)) {
+                    aiSummaryData.topRisks.forEach((r) => {
+                      extraInsights.push({
+                        title: `Risk: ${r.title}`,
+                        desc: r.desc,
+                        bg: 'bg-red-50',
+                        textColor: 'text-red-800',
+                      })
+                    })
+                  }
+                  if (Array.isArray(aiSummaryData.topOpportunities)) {
+                    aiSummaryData.topOpportunities.forEach((o) => {
+                      extraInsights.push({
+                        title: `Opportunity: ${o.title}`,
+                        desc: o.desc,
+                        bg: 'bg-emerald-50',
+                        textColor: 'text-emerald-800',
+                      })
+                    })
+                  }
+                  return {
+                    ...prev,
+                    insights: [...extraInsights, ...(prev.insights || [])],
+                  }
+                })
+              }
+            })
+            .catch(() => {
+              /* soft fail — background AI summary */
+            })
+        }
       } catch (err) {
         const msg = err.response?.data?.error || err.message || 'Failed to load comments'
         setError(msg)

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import InstagramProvider from './instagramProvider.js'
+import InstagramReel from '../../models/InstagramReel.js'
 
 // ────────────────────────────────────────────────────────────────────────
 // ApifyProvider — Instagram data via Apify's `apify~instagram-scraper` actor.
@@ -273,12 +274,17 @@ export default class ApifyProvider extends InstagramProvider {
     // Strip legacy compound form: "<mediaId>_<userId>" → not a shortCode.
     // The actor can't resolve these; the caller should pass the shortCode.
     if (shortCode.includes('_')) {
-      const err = new Error(
-        `ApifyProvider.getComments: received compound mediaId "${shortCode}". ` +
-        `Apify expects a post URL. Reel must be re-synced to store shortCode as reelId.`
-      )
-      err.code = 'LEGACY_REEL_ID'
-      throw err
+      const reelDoc = await InstagramReel.findOne({ reelId }).lean().catch(() => null)
+      const resolvedCode = reelDoc?.rawPayload?.media?.code || reelDoc?.rawPayload?.code
+      if (resolvedCode) {
+        shortCode = resolvedCode
+      } else {
+        const err = new Error(
+          `ApifyProvider.getComments: received compound mediaId "${shortCode}" with no shortCode in DB rawPayload.`
+        )
+        err.code = 'LEGACY_REEL_ID'
+        throw err
+      }
     }
 
     const items = await this._runActor({
