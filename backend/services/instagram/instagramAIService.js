@@ -560,14 +560,34 @@ async function computeRecommendations(ctx) {
 
     return {
       result: {
-        recommendations: tips.map((t, i) => ({
-          id: t.id || i + 1,
-          title: deYouTube(t.title || t.tip || ''),
-          rationale: deYouTube(t.rationale || t.reason || t.description || ''),
-          category: t.category || t.theme || 'General',
-          impact: t.impact || t.priority || 'Medium',
-          effort: t.effort || 'Medium',
-        })),
+        recommendations: tips.map((t, i) => {
+          const text = t.text || t.tip || t.title || ''
+          let title = text
+          let rationale = text
+
+          if (text.includes(':')) {
+            const parts = text.split(':')
+            title = parts[0].trim()
+            rationale = parts.slice(1).join(':').trim()
+          } else if (text.length > 50) {
+            const cutIdx = text.indexOf(' ', 40)
+            if (cutIdx !== -1) {
+              title = text.substring(0, cutIdx) + '...'
+            }
+          }
+
+          const fallbackImpact = t.type === 'positive' || t.severity === 'positive' ? 'High' : 'Medium'
+          const impact = t.impact || t.priority || fallbackImpact
+
+          return {
+            id: t.id || i + 1,
+            title: deYouTube(t.title || t.tip || title),
+            rationale: deYouTube(t.rationale || t.reason || t.description || rationale),
+            category: t.category || t.theme || (t.type ? (t.type.charAt(0).toUpperCase() + t.type.slice(1)) : 'Strategy'),
+            impact: impact.charAt(0).toUpperCase() + impact.slice(1).toLowerCase(),
+            effort: t.effort || 'Low',
+          }
+        }),
         meta: {
           accountUsername: account.username,
           followers: account.followers || 0,
