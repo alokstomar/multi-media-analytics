@@ -161,17 +161,27 @@ export async function getCached({ workspaceId, accountId, type, input, computeFn
       inputHash,
     })
     if (cached) {
-      const durationMs = Date.now() - startMs
-      console.log('[IG AI]', {
-        type,
-        accountId,
-        cacheHit: true,
-        provider: getActiveProviderName(),
-        startedAt,
-        endedAt: new Date().toISOString(),
-        durationMs,
-      })
-      return cached.result
+      // Validate cached recommendations to prevent serving mock/empty stubs
+      const isValid = type !== 'recommendations' || 
+        (cached.result?.recommendations && 
+         cached.result.recommendations.length > 0 && 
+         cached.result.recommendations[0].title);
+
+      if (isValid) {
+        const durationMs = Date.now() - startMs
+        console.log('[IG AI]', {
+          type,
+          accountId,
+          cacheHit: true,
+          provider: getActiveProviderName(),
+          startedAt,
+          endedAt: new Date().toISOString(),
+          durationMs,
+        })
+        return cached.result
+      } else {
+        console.log('[IG AI] Cached recommendations were invalid or empty stubs. Forcing fresh generation...')
+      }
     }
   } catch {
     /* cache read failure — proceed to compute */

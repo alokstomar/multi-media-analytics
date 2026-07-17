@@ -24,10 +24,21 @@ export function useInstagramAdapter() {
     const followers = snapshot.followers || 0
     const avgViews = snapshot.averageViews || 0
 
+    let endDate = new Date()
+    if (posts && posts.length > 0) {
+      const dates = posts.map(p => new Date(p.publishedAt || p.publishDate)).filter(d => !isNaN(d))
+      if (dates.length > 0) {
+        const latestDate = new Date(Math.max(...dates))
+        if (latestDate < endDate) {
+          endDate = latestDate
+        }
+      }
+    }
+
     // Build dynamic 14-day time series from actual post engagement/reach data
     const dateMap = {}
     for (let i = 13; i >= 0; i--) {
-      const d = new Date()
+      const d = new Date(endDate.getTime())
       d.setDate(d.getDate() - i)
       const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       const dateKey = d.toISOString().split('T')[0]
@@ -96,13 +107,11 @@ export function useInstagramAdapter() {
     if (!rawAnalytics?.overview) {
       return [
         { label: 'Followers', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
-        { label: 'Follower Growth', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
         { label: 'Reach', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
         { label: 'Impressions', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
         { label: 'Profile Visits', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
         { label: 'Accounts Engaged', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
         { label: 'Engagement Rate', value: '0', unit: '%', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
-        { label: 'Website Clicks', value: '0', unit: '', trend: '0%', up: true, spark: [0, 0, 0, 0, 0, 0, 0] },
       ]
     }
 
@@ -117,23 +126,17 @@ export function useInstagramAdapter() {
     const erg = ov.engGrowth || 0
 
     // Absolute growth calculations — derivations from real values only.
-    const absFollowerGrowth = Math.round(fol * folg / 100)
     const absAccountsEngaged = Math.round(reach * (er / 100))
-    // Website clicks require a backend endpoint that does not exist yet.
-    // Surface zero rather than fabricating a percentage of profile visits.
-    const absWebsiteClicks = 0
 
     // Spark histories. Metrics without a backend source render flat zeros —
     // no multipliers fabricated from other metrics.
     const ts = rawAnalytics.timeSeries || []
     const sparkFollowers = ts.length ? ts.slice(-7).map(d => d.followers) : [0,0,0,0,0,0,0]
-    const sparkFollowersGrowth = ts.length ? ts.slice(-7).map(d => Math.round(d.followers * folg / 100)) : [0,0,0,0,0,0,0]
     const sparkReach = ts.length ? ts.slice(-7).map(d => d.reach) : [0,0,0,0,0,0,0]
     const sparkImpressions = ts.length ? ts.slice(-7).map(d => d.impressions) : [0,0,0,0,0,0,0]
     const sparkProfileVisits = ts.length ? ts.slice(-7).map(d => d.profileVisits || 0) : [0,0,0,0,0,0,0]
     const sparkEngaged = ts.length ? ts.slice(-7).map(d => Math.round(d.reach * (d.engagement / 100))) : [0,0,0,0,0,0,0]
     const sparkEr = ts.length ? ts.slice(-7).map(d => d.engagement) : [0,0,0,0,0,0,0]
-    const sparkClicks = ts.length ? ts.slice(-7).map(d => d.websiteClicks || 0) : [0,0,0,0,0,0,0]
 
     return [
       {
@@ -144,15 +147,6 @@ export function useInstagramAdapter() {
         up: folg >= 0,
         spark: sparkFollowers,
         estimated: false,
-      },
-      {
-        label: 'Follower Growth',
-        value: fmt(absFollowerGrowth),
-        unit: '',
-        trend: folg >= 0 ? `+${folg.toFixed(1)}%` : `${folg.toFixed(1)}%`,
-        up: folg >= 0,
-        spark: sparkFollowersGrowth,
-        estimated: true,
       },
       {
         label: 'Reach',
@@ -197,15 +191,6 @@ export function useInstagramAdapter() {
         trend: erg >= 0 ? `+${erg.toFixed(1)}%` : `${erg.toFixed(1)}%`,
         up: erg >= 0,
         spark: sparkEr,
-        estimated: false,
-      },
-      {
-        label: 'Website Clicks',
-        value: fmt(absWebsiteClicks),
-        unit: '',
-        trend: '0%',
-        up: true,
-        spark: sparkClicks,
         estimated: false,
       },
     ]
