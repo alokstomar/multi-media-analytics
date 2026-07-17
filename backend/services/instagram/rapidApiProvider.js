@@ -518,12 +518,12 @@ export default class RapidApiProvider extends InstagramProvider {
       const nextParam = this._buildPaginationParam(cursor, cursorType)
       if (nextParam) params[nextParam.key] = nextParam.value
 
-      const body = await this._httpGet('/reels', params, `getReels.page[${pagesFetched}]`)
+      const body = await this._httpGet('/posts', params, `getReels.page[${pagesFetched}]`)
       const items = this._extractReelItems(body)
       if (items === null) {
         throw new Error(
           `RapidApiProvider.getReels: could not extract items array from ` +
-          `/reels response for user_id "${userId}" on page ${pagesFetched}. ` +
+          `/posts response for user_id "${userId}" on page ${pagesFetched}. ` +
           `Checked candidate paths: ${REEL_ITEMS_ARRAY_CANDIDATES.join(', ')}. ` +
           `Enable DEBUG_RAPIDAPI=true to inspect the raw payload logged as ` +
           `"GET getReels.page[N] response".`
@@ -562,7 +562,7 @@ export default class RapidApiProvider extends InstagramProvider {
 
       let body
       try {
-        body = await this._httpPost('/api/instagram/reels', bodyData, `getReels.page[${pagesFetched}]`)
+        body = await this._httpPost('/api/instagram/posts', bodyData, `getReels.page[${pagesFetched}]`)
       } catch (err) {
         if (allReels.length > 0) {
           this._logDebug(`getReels pagination failed at page ${pagesFetched}, returning ${allReels.length} reels`, err.message)
@@ -574,7 +574,7 @@ export default class RapidApiProvider extends InstagramProvider {
       if (items === null) {
         throw new Error(
           `RapidApiProvider.getReels: could not extract items array from ` +
-          `/api/instagram/reels response for username "${username}" on page ${pagesFetched}. ` +
+          `/api/instagram/posts response for username "${username}" on page ${pagesFetched}. ` +
           `Checked candidate paths: ${REEL_ITEMS_ARRAY_CANDIDATES.join(', ')}. ` +
           `Enable DEBUG_RAPIDAPI=true to inspect the raw payload logged as ` +
           `"POST getReels.page[N] response".`
