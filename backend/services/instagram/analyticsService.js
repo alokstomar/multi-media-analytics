@@ -119,6 +119,7 @@ export const analyticsService = {
           likes: item.likes,
           comments: item.comments,
           publishDate: item.publishDate,
+          mediaType: item.mediaType || 'Video',
           provider: process.env.INSTAGRAM_PROVIDER || 'mock',
           providerVersion: 'v1',
           syncedAt: new Date(),

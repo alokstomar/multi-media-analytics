@@ -250,7 +250,7 @@ export default class ApifyProvider extends InstagramProvider {
 
     const items = await this._runActor({
       directUrls: [`https://www.instagram.com/${clean}/`],
-      resultsType: 'reels',
+      resultsType: 'posts',
       resultsLimit: REELS_RESULTS_LIMIT,
     }, 'getReels')
 
