@@ -2,6 +2,7 @@ import InstagramProfile from '../../models/InstagramProfile.js'
 import InstagramAnalyticsSnapshot from '../../models/InstagramAnalyticsSnapshot.js'
 import InstagramReel from '../../models/InstagramReel.js'
 import InstagramComment from '../../models/InstagramComment.js'
+import { commentsService, classifyComment } from './commentsService.js'
 import { providerFactory } from './providerFactory.js'
 import { cacheService } from './cacheService.js'
 
@@ -152,18 +153,12 @@ export const analyticsService = {
         error: 'Comments are not supported by the configured provider.',
       })
     } else {
-      for (let i = 0; i < Math.min(savedReels.length, 3); i++) {
+      for (let i = 0; i < Math.min(savedReels.length, 5); i++) {
         const reelDoc = savedReels[i]
         try {
           const comments = await provider.getComments(reelDoc.reelId)
           for (const c of comments) {
-            let sentiment = c.sentiment || 'neutral'
-            const textLower = (c.text || '').toLowerCase()
-            if (textLower.includes('best') || textLower.includes('love') || textLower.includes('awesome') || textLower.includes('great') || textLower.includes('genius') || textLower.includes('amazing')) {
-              sentiment = 'positive'
-            } else if (textLower.includes('fail') || textLower.includes('disagree') || textLower.includes('bad') || textLower.includes('hate')) {
-              sentiment = 'negative'
-            }
+            const { sentiment, category } = classifyComment(c.text)
 
             await InstagramComment.findOneAndUpdate(
               { commentId: c.commentId, workspaceId },
@@ -171,7 +166,8 @@ export const analyticsService = {
                 reelId: reelDoc.reelId,
                 text: c.text,
                 author: c.author,
-                sentiment,
+                sentiment: c.sentiment || sentiment,
+                category,
                 provider: process.env.INSTAGRAM_PROVIDER || 'apify',
                 providerVersion: 'v1',
                 syncedAt: new Date(),

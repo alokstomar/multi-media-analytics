@@ -8,7 +8,7 @@ const PROVIDER_NAME = () => process.env.INSTAGRAM_PROVIDER || 'rapidapi'
  * Classify comment text into sentiment + category.
  * Applied to every real comment fetched from RapidAPI.
  */
-function classifyComment(text) {
+export function classifyComment(text) {
   const t = (text || '').toLowerCase()
   let sentiment = 'neutral'
   let category = 'neutral'
