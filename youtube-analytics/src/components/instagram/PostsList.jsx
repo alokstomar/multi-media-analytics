@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Clock,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
 import { getInstagramReels } from '../../services/api'
 import { fmt } from '../../utils/format'
@@ -148,6 +149,7 @@ function SortHeader({ label, active, dir, onClick, align = 'right' }) {
 
 // ── Row (desktop table) ───────────────────────────────────────────────────
 function PostRow({ post, rank }) {
+  const navigate = useNavigate()
   const publishedAt = post.publishedAt ? new Date(post.publishedAt) : null
   const dateLabel = publishedAt
     ? publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -194,14 +196,6 @@ function PostRow({ post, rank }) {
         {fmt(post.reach || 0)}
       </td>
 
-      {/* Impressions (estimated) */}
-      <td className="px-3 py-3 text-right">
-        <span className="text-[13px] font-semibold text-gray-800 tabular-nums">
-          {fmt(estimateImpressions(post.reach))}
-        </span>
-        <span className="block text-[9px] text-amber-600 font-medium">est.</span>
-      </td>
-
       {/* Likes */}
       <td className="px-3 py-3 text-right">
         <Metric icon={Heart} value={fmt(post.likes || 0)} color="text-gray-800" />
@@ -209,7 +203,13 @@ function PostRow({ post, rank }) {
 
       {/* Comments */}
       <td className="px-3 py-3 text-right">
-        <Metric icon={MessageSquare} value={fmt(post.comments || 0)} color="text-gray-800" />
+        <button
+          onClick={() => navigate(`/comments?reelId=${post.id || post.reelId || ''}`)}
+          className="inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-purple-600 hover:text-purple-800 hover:underline cursor-pointer border-0 bg-transparent p-0"
+        >
+          <MessageSquare className="h-3 w-3 text-purple-400" />
+          {fmt(post.comments || 0)}
+        </button>
       </td>
 
       {/* Saves */}
@@ -613,11 +613,6 @@ export default function PostsList() {
                         dir={sortDir}
                         onClick={() => handleSort('reach')}
                       />
-                    </th>
-                    <th className="px-3 py-3 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                      <span title="Estimated from reach (provider does not expose impressions)">
-                        Impr. (est.)
-                      </span>
                     </th>
                     <th className="px-3 py-3 text-right">
                       <SortHeader

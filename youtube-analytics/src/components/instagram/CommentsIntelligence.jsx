@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
@@ -159,10 +160,22 @@ export default function CommentsIntelligence() {
     loading: adapterLoading,
   } = useInstagramAdapter()
 
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filterReelId = searchParams.get('reelId')
+
   const isDemo = !selectedAccount || selectedAccount.id === 'demo_ig'
   const activeAccount = isDemo ? null : selectedAccount
   const activeAccountId = activeAccount?.id
   const username = activeAccount?.handle?.replace('@', '') || ''
+
+  const filteredReel = useMemo(() => {
+    if (!filterReelId) return ''
+    if (comments && comments.length > 0) {
+      const match = comments.find(c => c.videoId === filterReelId)
+      if (match) return match.video || 'Selected Post'
+    }
+    return 'Selected Post'
+  }, [filterReelId, comments])
 
   // Filters
   const [search, setSearch] = useState('')
@@ -191,7 +204,7 @@ export default function CommentsIntelligence() {
   // Reset page on filter change
   useEffect(() => {
     setPage(1)
-  }, [activeAccountId, activeTab, debouncedSearch, timeRange, language])
+  }, [activeAccountId, activeTab, debouncedSearch, timeRange, language, filterReelId])
 
   // Debounce search 300ms
   useEffect(() => {
@@ -218,7 +231,16 @@ export default function CommentsIntelligence() {
       try {
         const reelsRes = await getInstagramReels(username)
         const reels = reelsRes?.data || []
-        const reelsSlice = reels.slice(0, maxVideos)
+        
+        let reelsSlice = reels.slice(0, maxVideos)
+        if (filterReelId) {
+          const matched = reels.find((r) => r.reelId === filterReelId || r.id === filterReelId)
+          if (matched) {
+            reelsSlice = [matched]
+          } else {
+            reelsSlice = [{ reelId: filterReelId }]
+          }
+        }
 
         const commentsResults = await Promise.allSettled(
           reelsSlice.map((r) => getInstagramComments(r.reelId, refresh))
@@ -534,7 +556,7 @@ export default function CommentsIntelligence() {
         setLoading(false)
       }
     },
-    [activeAccount, username, page, limit, activeTab, debouncedSearch, timeRange, maxVideos, maxVolume, language]
+    [activeAccount, username, page, limit, activeTab, debouncedSearch, timeRange, maxVideos, maxVolume, language, filterReelId]
   )
 
   useEffect(() => {
@@ -736,6 +758,27 @@ export default function CommentsIntelligence() {
               exit={{ opacity: 0 }}
               className="space-y-5"
             >
+              {filterReelId && (
+                <div
+                  className="flex items-center justify-between rounded-2xl border border-blue-100 bg-blue-50/50 px-5 py-3 text-xs text-blue-700"
+                  style={{ boxShadow: cardShadow }}
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <MessageCircle className="h-4 w-4 text-blue-500 animate-pulse" />
+                    <span>Filtering comments for selected post: <strong className="text-blue-900">{filteredReel}</strong></span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      searchParams.delete('reelId')
+                      setSearchParams(searchParams)
+                    }}
+                    className="font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer border-0 bg-transparent p-0"
+                  >
+                    Clear Filter
+                  </button>
+                </div>
+              )}
+
               {/* Source / Status Bar */}
               {syncStatus && (
                 <div
