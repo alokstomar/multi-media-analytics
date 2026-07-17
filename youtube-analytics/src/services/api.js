@@ -719,16 +719,16 @@ export const syncInstagramBulk = (usernames) =>
 
 
 export const getInstagramProfile = (username, force = false) =>
-  api.get(`/api/instagram/profile/${username}`, { params: { force } }).then((r) => r.data)
+  api.get(`/api/instagram/profile/${username}`, { params: { force }, timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const getInstagramReels = (username, force = false) =>
-  api.get(`/api/instagram/reels/${username}`, { params: { force } }).then((r) => r.data)
+  api.get(`/api/instagram/reels/${username}`, { params: { force }, timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const getInstagramComments = (reelId, force = false) =>
-  api.get(`/api/instagram/comments/${reelId}`, { params: { force } }).then((r) => r.data)
+  api.get(`/api/instagram/comments/${reelId}`, { params: { force }, timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const getInstagramProfileAnalytics = (username, force = false) =>
-  api.get(`/api/instagram/analytics/${username}`, { params: { force } }).then((r) => r.data)
+  api.get(`/api/instagram/analytics/${username}`, { params: { force }, timeout: CHANNEL_TIMEOUT }).then((r) => r.data)
 
 export const triggerInstagramAIRecommendations = (username) =>
   api.post(`/api/instagram/recommendations/${username}`).then((r) => r.data)

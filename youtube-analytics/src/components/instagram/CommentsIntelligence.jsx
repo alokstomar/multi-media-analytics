@@ -220,15 +220,16 @@ export default function CommentsIntelligence() {
         const reels = reelsRes?.data || []
         const reelsSlice = reels.slice(0, maxVideos)
 
-        const commentsResults = await Promise.all(
+        const commentsResults = await Promise.allSettled(
           reelsSlice.map((r) => getInstagramComments(r.reelId, refresh))
         )
 
         let lastSyncTime = null
         const raw = []
         commentsResults.forEach((res, rIdx) => {
+          if (res.status !== 'fulfilled') return
           const reel = reelsSlice[rIdx]
-          const list = res?.data || []
+          const list = res.value?.data || []
           list.forEach((c) => {
             raw.push({ ...c, reel, channelName: activeAccount.name })
             if (!lastSyncTime || new Date(c.syncedAt) > new Date(lastSyncTime)) {
