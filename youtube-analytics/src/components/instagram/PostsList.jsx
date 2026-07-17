@@ -28,7 +28,7 @@ import AccountCarousel from './AccountCarousel'
 const TABS = [
   { id: 'All', label: 'All Posts', icon: Layers },
   { id: 'Reel', label: 'Reels', icon: Film },
-  { id: 'Carousel', label: 'Carousel', icon: Layers },
+  { id: 'Post', label: 'Posts', icon: Layers },
   { id: 'Story', label: 'Stories', icon: Circle },
 ]
 
@@ -367,7 +367,7 @@ export default function PostsList() {
               p.rawPayload?.media?.image_versions2?.candidates?.[0]?.url_wrapped || 
               p.rawPayload?.image_versions2?.candidates?.[0]?.url_wrapped,
             caption: p.caption || (code ? `Instagram Post (${code})` : 'Instagram Post'),
-            type: p.type || (p.mediaType === 'Video' ? 'Reel' : (p.mediaType === 'Image' ? 'Story' : (p.mediaType || 'Post'))),
+            type: p.type || (p.mediaType === 'Video' ? 'Reel' : (p.mediaType === 'Image' || p.mediaType === 'Sidecar' || p.mediaType === 'Carousel' ? 'Post' : (p.mediaType || 'Post'))),
             reach,
             publishedAt: p.publishedAt ? p.publishedAt : p.publishDate,
             saves: p.saves || p.rawPayload?.media?.save_count || p.rawPayload?.save_count || 0,
@@ -467,13 +467,17 @@ export default function PostsList() {
 
   // Per-tab counts
   const tabCounts = useMemo(() => {
-    const counts = { All: posts.length, Reel: 0, Carousel: 0, Story: 0 }
-    posts.forEach((p) => {
-      const t = p.type || 'Post'
-      if (counts[t] !== undefined) counts[t] += 1
-    })
-    return counts
-  }, [posts])
+    const totalCount = selectedAccount?._raw?.totalVideos || posts.length
+    const reelsCount = posts.filter(p => p.type === 'Reel').length
+    const postsCount = Math.max(0, totalCount - reelsCount)
+    
+    return {
+      All: totalCount,
+      Reel: reelsCount,
+      Post: postsCount,
+      Story: 0
+    }
+  }, [posts, selectedAccount])
 
   const showSkeleton = (adapterLoading || loading) && !refreshing
   const showEmpty = !loading && !error && visible.length === 0
