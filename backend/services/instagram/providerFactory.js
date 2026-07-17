@@ -17,15 +17,19 @@ let activeInstance = null
  * development, never a fallback.
  */
 function resolveProviderType() {
-  const raw = (process.env.INSTAGRAM_PROVIDER || '').trim().toLowerCase()
+  let raw = (process.env.INSTAGRAM_PROVIDER || '').trim().toLowerCase()
   if (!raw) {
-    const err = new Error(
-      'INSTAGRAM_PROVIDER is not configured. Set it to one of: ' +
-      VALID_PROVIDERS.join(', ') + '.'
-    )
-    err.status = 500
-    err.name = 'ProviderConfigError'
-    throw err
+    if (process.env.APIFY_TOKEN) {
+      raw = 'apify'
+    } else {
+      const err = new Error(
+        'INSTAGRAM_PROVIDER is not configured. Set it to one of: ' +
+        VALID_PROVIDERS.join(', ') + '.'
+      )
+      err.status = 500
+      err.name = 'ProviderConfigError'
+      throw err
+    }
   }
   if (!VALID_PROVIDERS.includes(raw)) {
     const err = new Error(
@@ -38,6 +42,7 @@ function resolveProviderType() {
   }
   return raw
 }
+
 
 export const providerFactory = {
   /**
