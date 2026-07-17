@@ -800,6 +800,22 @@ export const generateInstagramContentIdeas = (payload) =>
     .post('/api/instagram/intelligence/content-ideas', payload, { timeout: AI_TIMEOUT })
     .then((r) => r.data?.data || { ideas: [] })
 
+export const getInstagramCommentSummary = (accountId) =>
+  api
+    .get('/api/instagram/intelligence/comments-summary', {
+      params: { accountId },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { summary: '', topRisks: [], topOpportunities: [] })
+
+export const getInstagramPortfolioInsights = (accountIds = []) =>
+  api
+    .get('/api/instagram/intelligence/portfolio-insights', {
+      params: { accountIds: Array.isArray(accountIds) ? accountIds.join(',') : accountIds },
+      timeout: AI_TIMEOUT,
+    })
+    .then((r) => r.data?.data || { healthScore: 0, stabilityScore: 0, recommendations: [] })
+
 export const getAIUsageStats = () =>
   api.get('/api/settings/ai-usage').then((r) => r.data)
 

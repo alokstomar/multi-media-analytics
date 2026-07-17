@@ -106,3 +106,32 @@ export async function createContentIdeas(req, res, next) {
     next(err)
   }
 }
+
+export async function getCommentSummary(req, res, next) {
+  try {
+    const data = await aiService.getCommentSummaryEndpoint({
+      workspaceId: req.workspaceId,
+      accountId: accountIdFrom(req),
+    })
+    attachAIHeaders(res)
+    res.json({ success: true, data })
+  } catch (err) {
+    next(err)
+  }
+}
+
+export async function getPortfolioInsights(req, res, next) {
+  try {
+    const rawIds = req.query.accountIds || req.body?.accountIds || []
+    const accountIds = Array.isArray(rawIds) ? rawIds : typeof rawIds === 'string' ? rawIds.split(',') : []
+    const data = await aiService.getPortfolioInsightsEndpoint({
+      workspaceId: req.workspaceId,
+      accountIds,
+    })
+    attachAIHeaders(res)
+    res.json({ success: true, data })
+  } catch (err) {
+    next(err)
+  }
+}
+

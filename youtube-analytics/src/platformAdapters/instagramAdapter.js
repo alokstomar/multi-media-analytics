@@ -222,7 +222,7 @@ export function useInstagramAdapter() {
         views: fmt(post.reach || 0),
         watch: `${fmt(post.likes || 0)} likes`, // Map likes/interactions to secondary metric
         eng: `${post.engagementRate || 0}%`,
-        viral: post.likes > 15000 ? 95 : post.likes > 5000 ? 85 : 72,
+        viral: null,
         ctr: `${((post.saves || 0) / (post.reach || 1) * 100).toFixed(1)}%`, // CTR represented as save-rate for IG
         ctrEstimated: false,
         badge: post.type, // 'Reel', 'Carousel', etc.

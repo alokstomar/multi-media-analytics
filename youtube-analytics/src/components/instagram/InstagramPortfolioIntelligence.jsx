@@ -36,6 +36,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
+import { getInstagramPortfolioInsights } from '../../services/api'
 import { exportToCSV } from '../../utils/csvExport'
 import { fmt } from '../../utils/format'
 
@@ -58,14 +59,8 @@ const ACCOUNT_COLORS = [
   '#EF4444', '#06B6D4', '#A855F7', '#84CC16', '#F97316',
 ]
 
-// v1 estimated audience overlap matrix — symmetric Jaccard-like scores
-// seeded from handle so the numbers are stable across renders.
 function estimateOverlap(a, b) {
-  if (!a || !b) return 0
-  const seed = (a.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0) +
-    (b.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0)
-  // Base 15-45% overlap with deterministic variation per pair
-  return 15 + (seed % 30)
+  return 0
 }
 
 const ESTIMATED_UPLOAD_WINDOWS = [
@@ -322,17 +317,13 @@ export default function InstagramPortfolioIntelligence() {
     [realAccounts, selectedIds]
   )
 
-  /* ── Per-account derived metrics (deterministic from id) ── */
+  /* ── Per-account derived metrics ── */
   const accountMetrics = useMemo(() => {
     return selectedAccounts.map((acc, i) => {
       const followers = acc._raw?.subscribers || 0
       const posts = acc._raw?.totalVideos || 0
-      // Per-account ER: combine shared baseline with deterministic per-id variation
-      const idSeed = (acc.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0)
-      const erBase = acc._analytics?.engagementRate || 4.2
-      const er = Math.max(0.8, Math.min(12, erBase + ((idSeed % 30) / 10) - 1.5))
-      // Reach estimate: typically 4-8x followers / month depending on posting cadence
-      const reach = Math.round(followers * (3.5 + ((idSeed % 40) / 10)))
+      const er = acc._analytics?.engagementRate || 0
+      const reach = acc._analytics?.averageViews || 0
       const growth = parseFloat(acc.growth?.replace(/[+%]/g, '') || '0')
       const growthUp = acc.growthUp ?? growth >= 0
       const color = ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]
@@ -399,67 +390,38 @@ export default function InstagramPortfolioIntelligence() {
     [accountMetrics]
   )
 
-  /* ── Growth trend chart (synthetic v1, deterministic per account) ── */
-  const growthTrendData = useMemo(() => {
-    // 7 buckets representing the selected range
-    const buckets = 7
-    const out = []
-    for (let i = 0; i < buckets; i++) {
-      const point = { idx: i }
-      const labelProgress = i / (buckets - 1)
-      accountMetrics.forEach((a) => {
-        // S-curve growth between 85% and 100% of current followers
-        const seed = (a.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0)
-        const noise = ((seed + i * 7) % 11) / 100
-        const curve = 0.85 + 0.15 * labelProgress
-        point[a.handle?.replace('@', '') || a.name] = Math.round(a.followers * (curve + noise))
-      })
-      out.push(point)
-    }
-    return out
-  }, [accountMetrics])
+  /* ── Growth trend chart (requires multiple historical snapshots) ── */
+  const growthTrendData = useMemo(() => [], [])
 
-  /* ── AI insights (computed client-side) ── */
-  const insights = useMemo(() => {
-    if (!accountMetrics.length) return []
-    const byFollowers = [...accountMetrics].sort((a, b) => b.followers - a.followers)[0]
-    const byEr = [...accountMetrics].sort((a, b) => b.er - a.er)[0]
-    const byGrowth = [...accountMetrics].sort((a, b) => b.growth - a.growth)[0]
-    const byPosts = [...accountMetrics].sort((a, b) => b.posts - a.posts)[0]
+  /* ── DeepSeek Portfolio AI Insights ── */
+  const [insights, setInsights] = useState([])
 
-    const out = [
-      {
-        type: 'positive',
-        title: 'Top performer by reach',
-        desc: `${byFollowers.name} leads the portfolio with ${fmt(byFollowers.followers)} followers and ${fmt(byFollowers.reach)} estimated monthly reach.`,
-        action: `Allocate 30% more cross-promo budget to ${byFollowers.handle}.`,
-      },
-      {
-        type: 'positive',
-        title: 'Engagement champion',
-        desc: `${byEr.name} has the highest engagement rate at ${byEr.er.toFixed(2)}% — ${((byEr.er / Math.max(portfolio.avgEr, 0.1)) * 100 - 100).toFixed(0)}% above portfolio average.`,
-        action: 'Document their content style and replicate across other accounts.',
-      },
-    ]
-    if (byGrowth.growth > 0) {
-      out.push({
-        type: 'positive',
-        title: 'Fastest growing',
-        desc: `${byGrowth.name} is growing at ${byGrowth.growth.toFixed(1)}% — sustain cadence to compound gains.`,
-        action: `Boost top-performing Reels on ${byGrowth.handle} with paid amplification.`,
-      })
+  useEffect(() => {
+    if (!selectedIds.length) {
+      setInsights([])
+      return
     }
-    if (accountMetrics.length >= 2) {
-      const lowPoster = [...accountMetrics].sort((a, b) => a.posts - b.posts)[0]
-      out.push({
-        type: 'warning',
-        title: 'Posting consistency gap',
-        desc: `${byPosts.name} has ${byPosts.posts} posts while ${lowPoster.name} only has ${lowPoster.posts}. Portfolio reach is concentrated in high-volume accounts.`,
-        action: `Raise ${lowPoster.handle} to minimum 3 posts/week.`,
+    let isMounted = true
+    getInstagramPortfolioInsights(selectedIds)
+      .then((res) => {
+        if (!isMounted) return
+        const recs = res?.recommendations || []
+        const mapped = recs.map((r) => ({
+          type: 'positive',
+          title: r.title,
+          desc: r.desc || r.description,
+          action: r.action || 'Strategic recommendation',
+        }))
+        setInsights(mapped)
       })
+      .catch(() => {
+        if (isMounted) setInsights([])
+      })
+
+    return () => {
+      isMounted = false
     }
-    return out
-  }, [accountMetrics, portfolio.avgEr])
+  }, [selectedIds])
 
   /* ── Audience overlap matrix ── */
   const audienceOverlap = useMemo(() => {

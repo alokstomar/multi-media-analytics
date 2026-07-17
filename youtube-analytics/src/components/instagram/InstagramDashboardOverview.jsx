@@ -8,6 +8,8 @@ import {
   Activity,
 } from 'lucide-react'
 import { useInstagramAdapter } from '../../platformAdapters/instagramAdapter'
+import { useState, useEffect } from 'react'
+import { getInstagramRecommendations } from '../../services/api'
 import AccountCarousel from './AccountCarousel'
 
 // ── Sparkline (lightweight inline SVG, no chart lib) ──────────────────────
@@ -199,9 +201,42 @@ export default function InstagramDashboardOverview() {
   const activeAccount = isDemo ? null : selectedAccount
   const hasOverview = !!analyticsData?._raw?.overview
 
+  const [aiInsights, setAiInsights] = useState([])
+  const [aiLoading, setAiLoading] = useState(false)
+
+  useEffect(() => {
+    if (!activeAccount?.id || !hasOverview) {
+      setAiInsights([])
+      return
+    }
+    let isMounted = true
+    setAiLoading(true)
+    getInstagramRecommendations(activeAccount.id)
+      .then((res) => {
+        if (!isMounted) return
+        const recs = res?.recommendations || []
+        const mapped = recs.slice(0, 3).map((r) => ({
+          title: r.title,
+          desc: r.rationale,
+          action: `Category: ${r.category} · Impact: ${r.impact}`,
+          type: r.impact === 'High' ? 'positive' : r.impact === 'Medium' ? 'info' : 'warning',
+        }))
+        setAiInsights(mapped)
+      })
+      .catch(() => {
+        if (isMounted) setAiInsights([])
+      })
+      .finally(() => {
+        if (isMounted) setAiLoading(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeAccount?.id, hasOverview])
+
   const stats = analyticsData?.analyticsStats || []
   const performance = analyticsData?.performanceData || []
-  const insights = analyticsData?.aiInsights || []
   const trafficSources = analyticsData?.trafficSources || []
   const devices = analyticsData?.devices || []
 
@@ -309,14 +344,14 @@ export default function InstagramDashboardOverview() {
             </div>
 
             {/* AI Insights */}
-            {insights.length > 0 && (
+            {aiInsights.length > 0 && (
               <div>
                 <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-1.5">
                   <Lightbulb className="h-4 w-4 text-amber-500" />
                   AI Insights
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {insights.map((insight, i) => (
+                  {aiInsights.map((insight, i) => (
                     <InsightCard key={i} insight={insight} index={i} />
                   ))}
                 </div>

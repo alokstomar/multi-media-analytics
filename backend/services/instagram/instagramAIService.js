@@ -42,7 +42,6 @@ import {
   getHashtagSuggestions,
 } from './instagramGrowthService.js'
 
-// Per-feature cache TTLs. Matches the Phase 9 spec.
 export const CACHE_TTL = {
   recommendations: 24 * 60 * 60 * 1000, // 24h
   'best-times': 24 * 60 * 60 * 1000, // 24h
@@ -50,6 +49,8 @@ export const CACHE_TTL = {
   competitors: 24 * 60 * 60 * 1000, // 24h
   hashtags: 7 * 24 * 60 * 60 * 1000, // 7d
   'content-ideas': 12 * 60 * 60 * 1000, // 12h
+  'comments-summary': 6 * 60 * 60 * 1000, // 6h
+  'portfolio-insights': 24 * 60 * 60 * 1000, // 24h
 }
 
 // Fallback records are cached briefly so transient AI failures don't loop.
@@ -309,6 +310,186 @@ export async function getContentIdeasEndpoint({ workspaceId, accountId, userInpu
     computeFn: async () => {
       const ctx = await loadAccountContext(accountId, workspaceId)
       return getContentIdeas(ctx, userInput)
+    },
+  })
+}
+
+export async function getCommentSummaryEndpoint({ workspaceId, accountId }) {
+  return getCached({
+    workspaceId,
+    accountId,
+    type: 'comments-summary',
+    input: '',
+    computeFn: async () => {
+      const ctx = await loadAccountContext(accountId, workspaceId)
+      const { account, recentReels, recentComments } = ctx
+
+      if (!recentComments.length) {
+        return {
+          result: {
+            summary: 'No comments synced yet for this account.',
+            topRisks: [],
+            topOpportunities: [],
+            meta: { accountUsername: account.username, generatedAt: new Date().toISOString() },
+          },
+          fallback: false,
+        }
+      }
+
+      try {
+        const provider = getAIProvider()
+        const commentAlerts = recentComments.slice(0, 50).map((c) => ({
+          severity: c.sentiment === 'negative' ? 'high' : 'info',
+          title: c.category || 'comment',
+          desc: (c.text || '').slice(0, 150),
+        }))
+
+        const raw = await provider.summarizeAlerts(
+          {
+            channelId: account.username,
+            channel: {
+              title: account.username,
+              subscribers: account.followers || 0,
+              totalVideos: account.postsCount || 0,
+            },
+            videos: recentReels.map((r) => ({ title: (r.caption || '').slice(0, 80), views: r.views || 0 })),
+            derivedAlerts: commentAlerts,
+          },
+          { channelId: account.username, feature: 'ig-comment-summary' }
+        )
+
+        return {
+          result: {
+            summary: deYouTube(raw?.summary || 'Comment analysis generated.'),
+            topRisks: Array.isArray(raw?.topRisks)
+              ? raw.topRisks.map((r) => ({
+                  title: deYouTube(r.title),
+                  desc: deYouTube(r.desc),
+                  severity: r.severity || 'medium',
+                }))
+              : [],
+            topOpportunities: Array.isArray(raw?.topOpportunities)
+              ? raw.topOpportunities.map((o) => ({
+                  title: deYouTube(o.title),
+                  desc: deYouTube(o.desc),
+                  severity: o.severity || 'medium',
+                }))
+              : [],
+            meta: { accountUsername: account.username, generatedAt: new Date().toISOString() },
+          },
+        }
+      } catch (err) {
+        console.warn('[IG AI] comment-summary fell back:', err.message)
+        return {
+          result: {
+            summary: 'Comment AI analysis is temporarily unavailable.',
+            topRisks: [],
+            topOpportunities: [],
+            meta: { accountUsername: account.username, generatedAt: new Date().toISOString() },
+          },
+          fallback: true,
+        }
+      }
+    },
+  })
+}
+
+export async function getPortfolioInsightsEndpoint({ workspaceId, accountIds = [] }) {
+  const sortedKey = (accountIds || []).sort().join('_')
+  return getCached({
+    workspaceId,
+    accountId: sortedKey || 'all',
+    type: 'portfolio-insights',
+    input: sortedKey,
+    computeFn: async () => {
+      const q = { workspaceId, deletedAt: null }
+      if (accountIds.length > 0) {
+        q.username = { $in: accountIds }
+      }
+      const accounts = await InstagramProfile.find(q).lean()
+      if (!accounts.length) {
+        return {
+          result: {
+            healthScore: 0,
+            stabilityScore: 0,
+            recommendations: [],
+            actionCenter: [],
+            growthRadar: [],
+            meta: { generatedAt: new Date().toISOString() },
+          },
+          fallback: true,
+        }
+      }
+
+      try {
+        const provider = getAIProvider()
+        const reels = await InstagramReel.find({
+          workspaceId,
+          username: { $in: accounts.map((a) => a.username) },
+        })
+          .sort({ publishDate: -1 })
+          .limit(100)
+          .lean()
+
+        const reelsByUsername = new Map()
+        for (const r of reels) {
+          const b = reelsByUsername.get(r.username) || []
+          if (b.length < 20) b.push(r)
+          reelsByUsername.set(r.username, b)
+        }
+
+        const channels = accounts.map((acc) => ({
+          channel: {
+            channelId: acc.username,
+            title: acc.username,
+            handle: `@${acc.username}`,
+            description: acc.bio || acc.category || '',
+            subscribers: acc.followers || 0,
+            totalVideos: acc.postsCount || 0,
+            totalViews: 0,
+          },
+          videos: (reelsByUsername.get(acc.username) || []).map((r) => ({
+            title: (r.caption || '').slice(0, 100),
+            views: r.views || 0,
+            likes: r.likes || 0,
+            comments: r.comments || 0,
+          })),
+        }))
+
+        const raw = await provider.getPortfolioStrategist({ channels }, { feature: 'ig-portfolio' })
+        return {
+          result: {
+            ...raw,
+            recommendations: Array.isArray(raw?.recommendations)
+              ? raw.recommendations.map((r) => ({
+                  ...r,
+                  title: deYouTube(r.title),
+                  desc: deYouTube(r.desc || r.description),
+                }))
+              : [],
+            meta: { accountCount: accounts.length, generatedAt: new Date().toISOString() },
+          },
+        }
+      } catch (err) {
+        console.warn('[IG AI] portfolio-insights fell back:', err.message)
+        return {
+          result: {
+            healthScore: 70,
+            stabilityScore: 70,
+            recommendations: [
+              {
+                id: 1,
+                title: 'Balance posting cadence across connected Instagram accounts',
+                desc: 'Maintain consistent reel uploads on lower-performing profiles.',
+              },
+            ],
+            actionCenter: [],
+            growthRadar: [],
+            meta: { accountCount: accounts.length, generatedAt: new Date().toISOString() },
+          },
+          fallback: true,
+        }
+      }
     },
   })
 }

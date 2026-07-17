@@ -23,6 +23,8 @@ import {
   listCompetitors,
   listHashtags,
   createContentIdeas,
+  getCommentSummary,
+  getPortfolioInsights,
 } from '../controllers/instagramAIController.js'
 
 const router = Router()
@@ -36,5 +38,7 @@ router.get('/growth-opportunities', listGrowthOpportunities)
 router.get('/competitors', listCompetitors)
 router.get('/hashtags', listHashtags)
 router.post('/content-ideas', createContentIdeas)
+router.get('/comments-summary', getCommentSummary)
+router.get('/portfolio-insights', getPortfolioInsights)
 
 export default router

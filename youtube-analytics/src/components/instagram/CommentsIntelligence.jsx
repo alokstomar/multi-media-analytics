@@ -37,6 +37,7 @@ import {
   getInstagramReels,
   getInstagramComments,
   syncInstagram,
+  getInstagramCommentSummary,
 } from '../../services/api'
 
 // ── Formatters ────────────────────────────────────────────
@@ -440,6 +441,40 @@ export default function CommentsIntelligence() {
               bg: 'bg-red-50',
               textColor: 'text-red-800',
             })
+          }
+
+          try {
+            const aiSummaryData = await getInstagramCommentSummary(username)
+            if (aiSummaryData?.summary && !aiSummaryData?._fallback) {
+              insights.unshift({
+                title: 'AI Narrative Summary',
+                desc: aiSummaryData.summary,
+                bg: 'bg-purple-50',
+                textColor: 'text-purple-900',
+              })
+              if (Array.isArray(aiSummaryData.topRisks)) {
+                aiSummaryData.topRisks.forEach((r) => {
+                  insights.push({
+                    title: `Risk: ${r.title}`,
+                    desc: r.desc,
+                    bg: 'bg-red-50',
+                    textColor: 'text-red-800',
+                  })
+                })
+              }
+              if (Array.isArray(aiSummaryData.topOpportunities)) {
+                aiSummaryData.topOpportunities.forEach((o) => {
+                  insights.push({
+                    title: `Opportunity: ${o.title}`,
+                    desc: o.desc,
+                    bg: 'bg-emerald-50',
+                    textColor: 'text-emerald-800',
+                  })
+                })
+              }
+            }
+          } catch {
+            /* non-blocking AI summary fetch */
           }
         }
 

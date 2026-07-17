@@ -32,6 +32,8 @@ const instagramIntelligenceCacheSchema = new mongoose.Schema({
       'competitors',
       'hashtags',
       'content-ideas',
+      'comments-summary',
+      'portfolio-insights',
     ],
   },
   // For GET endpoints this is always '' (the cache is keyed only by
