@@ -68,11 +68,75 @@ export const analyticsService = {
         console.log(`[AnalyticsService] Returning cached analytics metrics for: ${username}`)
         return cached
       }
+
+      // MongoDB-first check: return latest snapshot if it exists
+      const existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
+        .sort({ snapshotDate: -1 })
+        .lean()
+      if (existing) {
+        console.log(`[AnalyticsService] Returning latest MongoDB snapshot for: ${username}`)
+        await cacheService.set(cacheKey, existing, CACHE_TTL_PROFILE)
+        return existing
+      }
     }
 
     const provider = providerFactory.getProvider()
     const providerName = process.env.INSTAGRAM_PROVIDER || 'mock'
-    const data = await provider.getAnalytics(username)
+
+    let data
+    try {
+      data = await provider.getAnalytics(username)
+    } catch (err) {
+      console.warn(`[AnalyticsService] Provider error for ${username}: ${err.message}`)
+
+      // Fallback 1: Return latest MongoDB snapshot
+      const existing = await InstagramAnalyticsSnapshot.findOne({ username, workspaceId })
+        .sort({ snapshotDate: -1 })
+        .lean()
+      if (existing) {
+        console.log(`[AnalyticsService] Fallback: returning latest MongoDB snapshot after provider error`)
+        await cacheService.set(cacheKey, existing, CACHE_TTL_PROFILE)
+        return existing
+      }
+
+      // Fallback 2: Construct fallback snapshot from cached MongoDB profile and reels
+      console.log(`[AnalyticsService] Fallback 2: deriving analytics from DB profile and reels for ${username}`)
+      const profile = await InstagramProfile.findOne({ username, workspaceId }).lean()
+      const reels = await InstagramReel.find({ username, workspaceId }).lean()
+
+      const followers = profile?.followers || 0
+      const following = profile?.following || 0
+      const postsCount = profile?.postsCount || reels.length
+
+      let totalLikes = 0
+      let totalComments = 0
+      let totalViews = 0
+      reels.forEach((r) => {
+        totalLikes += r.likes || 0
+        totalComments += r.comments || 0
+        totalViews += r.views || 0
+      })
+
+      const averageLikes = reels.length ? Math.round(totalLikes / reels.length) : 0
+      const averageComments = reels.length ? Math.round(totalComments / reels.length) : 0
+      const averageViews = reels.length ? Math.round(totalViews / reels.length) : 0
+
+      // Engagement rate math: (averageLikes + averageComments) / followers * 100
+      const engagementRate = followers > 0
+        ? parseFloat((((averageLikes + averageComments) / followers) * 100).toFixed(2))
+        : 0
+
+      data = {
+        followers,
+        following,
+        postsCount,
+        averageLikes,
+        averageComments,
+        averageViews,
+        engagementRate,
+        rawPayload: { isFallback: true }
+      }
+    }
 
     // Create a new snapshot
     const snapshot = await InstagramAnalyticsSnapshot.create({
