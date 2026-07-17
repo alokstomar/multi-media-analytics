@@ -167,16 +167,6 @@ export default function CommentsIntelligence() {
   const activeAccount = isDemo ? null : selectedAccount
   const activeAccountId = activeAccount?.id
   const username = activeAccount?.handle?.replace('@', '') || ''
-
-  const filteredReel = useMemo(() => {
-    if (!filterReelId) return ''
-    if (comments && comments.length > 0) {
-      const match = comments.find(c => c.videoId === filterReelId)
-      if (match) return match.video || 'Selected Post'
-    }
-    return 'Selected Post'
-  }, [filterReelId, comments])
-
   // Filters
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -200,6 +190,15 @@ export default function CommentsIntelligence() {
   const [error, setError] = useState('')
   // null = unknown, true = supported, false = provider cannot fetch comments
   const [commentsSupported, setCommentsSupported] = useState(null)
+
+  const filteredReel = useMemo(() => {
+    if (!filterReelId) return ''
+    if (comments && comments.length > 0) {
+      const match = comments.find(c => c.videoId === filterReelId)
+      if (match) return match.video || 'Selected Post'
+    }
+    return 'Selected Post'
+  }, [filterReelId, comments])
 
   // Reset page on filter change
   useEffect(() => {
