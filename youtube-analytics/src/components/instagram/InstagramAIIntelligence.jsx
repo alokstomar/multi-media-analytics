@@ -85,6 +85,7 @@ export default function InstagramAIIntelligence() {
 
       const results = await Promise.allSettled([
         loadSlot('recommendations', () => getInstagramRecommendations(accountId), setRec),
+        loadSlot('content-ideas', () => generateInstagramContentIdeas({ accountId, prompt: '' }), setIdeas),
         loadSlot('best-times', () => getInstagramBestTimes(accountId), setBest),
         loadSlot('growth', () => getInstagramGrowthOpportunities(accountId), setGrowth),
         loadSlot('competitors', () => getInstagramCompetitors(accountId), setComp),
