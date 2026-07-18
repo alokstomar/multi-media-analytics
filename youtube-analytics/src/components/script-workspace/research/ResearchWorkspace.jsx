@@ -264,7 +264,7 @@ export default function ResearchWorkspace({
                 <EmptyResearchState
                   variant="too-short"
                   wordCount={words}
-                  threshold={200}
+                  threshold={1}
                 />
               )}
 

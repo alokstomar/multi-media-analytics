@@ -13,7 +13,7 @@ import {
 // the local hash differs from the cached one, expose `stale: true` so the
 // UI can show "Script changed. Re-analyze?".
 
-const WORD_THRESHOLD = 200
+const WORD_THRESHOLD = 1
 
 function wordCount(text) {
   return text ? text.trim().split(/\s+/).filter(Boolean).length : 0
