@@ -11,9 +11,9 @@
 
 import { StubSearchProvider } from './stubSearchProvider.js'
 
-const providerType = process.env.SEARCH_PROVIDER || 'stub'
 const tavilyApiKey = process.env.TAVILY_API_KEY
 const azureBingKey = process.env.AZURE_BING_SEARCH_KEY
+const providerType = process.env.SEARCH_PROVIDER || (tavilyApiKey ? 'tavily' : 'stub')
 
 let activeProviderInstance
 let activeProviderLabel = 'stub'
