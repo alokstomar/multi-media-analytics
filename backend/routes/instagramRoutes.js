@@ -12,6 +12,7 @@ import { analyticsService } from '../services/instagram/analyticsService.js'
 import { reelsService } from '../services/instagram/reelsService.js'
 import { commentsService } from '../services/instagram/commentsService.js'
 import { AppError } from '../utils/errorHandler.js'
+import axios from 'axios'
 
 const router = Router()
 
@@ -99,6 +100,29 @@ router.post('/recommendations/:username', async (req, res, next) => {
     res.json({ success: true, data: recommendations })
   } catch (err) {
     next(err)
+  }
+})
+
+router.get('/proxy-image', async (req, res, next) => {
+  try {
+    const { url } = req.query
+    if (!url) throw new AppError('URL is required', 400)
+
+    const response = await axios.get(url, {
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      }
+    })
+
+    res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg')
+    res.setHeader('Cache-Control', 'public, max-age=86400')
+    response.data.pipe(res)
+  } catch (err) {
+    console.warn('[IG Proxy] Failed to proxy image:', err.message)
+    // Send a blank 1x1 GIF as fallback rather than breaking client styling
+    res.setHeader('Content-Type', 'image/gif')
+    res.send(Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64'))
   }
 })
 

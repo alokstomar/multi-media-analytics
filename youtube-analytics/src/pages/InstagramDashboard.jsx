@@ -267,7 +267,7 @@ export default function InstagramDashboard() {
           {/* PROFILE CARD */}
           <div className="relative p-6 bg-white/60 border border-gray-100 rounded-2xl shadow-sm flex flex-col md:flex-row items-center md:items-start gap-6">
             <img
-              src={profile.profilePic || `https://ui-avatars.com/api/?name=${profile.username}&background=FF007F&color=fff&size=150`}
+              src={profile.profilePic ? `/api/instagram/proxy-image?url=${encodeURIComponent(profile.profilePic)}` : `https://ui-avatars.com/api/?name=${profile.username}&background=FF007F&color=fff&size=150`}
               alt={profile.username}
               className="h-20 w-20 rounded-2xl object-cover border border-gray-100 shadow-md shrink-0 bg-pink-100"
             />

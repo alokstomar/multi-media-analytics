@@ -261,7 +261,7 @@ function AccountCard({ account, isActive, onSelect, onDisconnect }) {
       <div className="flex items-center gap-3 min-w-0">
         <div className="relative shrink-0">
           <img
-            src={account.avatar}
+            src={account.avatar ? `/api/instagram/proxy-image?url=${encodeURIComponent(account.avatar)}` : `https://ui-avatars.com/api/?name=${account.name}&background=FF007F&color=fff&size=100`}
             alt={account.name}
             className={`h-11 w-11 rounded-full object-cover ring-2 ring-offset-1 transition-all ${
               isActive ? 'ring-purple-300' : 'ring-gray-100 group-hover:ring-purple-200'
