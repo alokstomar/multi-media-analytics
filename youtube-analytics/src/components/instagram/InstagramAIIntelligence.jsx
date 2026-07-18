@@ -7,14 +7,12 @@ import AccountCarousel from './AccountCarousel'
 import AIIntelligenceSkeleton from './AIIntelligenceSkeleton'
 import RecommendationsPanel from './RecommendationsPanel'
 import BestTimesPanel from './BestTimesPanel'
-import GrowthOpportunitiesPanel from './GrowthOpportunitiesPanel'
 import CompetitorInsightsPanel from './CompetitorInsightsPanel'
 import HashtagSuggestionsPanel from './HashtagSuggestionsPanel'
 import ContentIdeasPanel from './ContentIdeasPanel'
 import {
   getInstagramRecommendations,
   getInstagramBestTimes,
-  getInstagramGrowthOpportunities,
   getInstagramCompetitors,
   getInstagramHashtags,
   generateInstagramContentIdeas,
@@ -36,7 +34,6 @@ export default function InstagramAIIntelligence() {
 
   const [rec, setRec] = useState(INITIAL_SLOT)
   const [best, setBest] = useState(INITIAL_SLOT)
-  const [growth, setGrowth] = useState(INITIAL_SLOT)
   const [comp, setComp] = useState(INITIAL_SLOT)
   const [tags, setTags] = useState(INITIAL_SLOT)
 
@@ -87,7 +84,6 @@ export default function InstagramAIIntelligence() {
         loadSlot('recommendations', () => getInstagramRecommendations(accountId), setRec),
         loadSlot('content-ideas', () => generateInstagramContentIdeas({ accountId, prompt: '' }), setIdeas),
         loadSlot('best-times', () => getInstagramBestTimes(accountId), setBest),
-        loadSlot('growth', () => getInstagramGrowthOpportunities(accountId), setGrowth),
         loadSlot('competitors', () => getInstagramCompetitors(accountId), setComp),
         loadSlot('hashtags', () => getInstagramHashtags(accountId), setTags),
       ])
@@ -260,12 +256,6 @@ export default function InstagramAIIntelligence() {
             status={best.status}
             error={best.error}
             fallback={best.fallback}
-          />
-          <GrowthOpportunitiesPanel
-            data={growth.data}
-            status={growth.status}
-            error={growth.error}
-            fallback={growth.fallback}
           />
           <CompetitorInsightsPanel
             data={comp.data}
