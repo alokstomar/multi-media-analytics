@@ -3,7 +3,14 @@ import { createContext, useState, useContext } from 'react'
 const PlatformContext = createContext()
 
 export function PlatformProvider({ children }) {
-  const [selectedPlatform, setPlatform] = useState('youtube')
+  const [selectedPlatform, setPlatformState] = useState(() => {
+    return localStorage.getItem('selectedPlatform') || 'youtube'
+  })
+
+  const setPlatform = (platform) => {
+    setPlatformState(platform)
+    localStorage.setItem('selectedPlatform', platform)
+  }
 
   return (
     <PlatformContext.Provider value={{ selectedPlatform, setPlatform }}>
