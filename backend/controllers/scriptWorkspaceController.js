@@ -128,6 +128,7 @@ export async function getScriptWorkspace(req, res, next) {
           title: channel.title || '',
           handle: channel.handle || '',
           profileImage: channel.profileImage || '',
+          platform: channel.platform || 'youtube',
         },
         recommendation: {},
         working: { title: '', hook: '', fullScript: '', cta: '', description: '', hashtags: [] },

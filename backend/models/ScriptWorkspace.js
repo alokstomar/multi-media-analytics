@@ -33,6 +33,7 @@ const scriptWorkspaceSchema = new mongoose.Schema({
     title: String,
     handle: String,
     profileImage: String,
+    platform: { type: String, default: 'youtube' },
   },
 
   recommendation: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -89,6 +90,7 @@ scriptWorkspaceSchema.statics.findOrCreate = async function ({ workspaceId, chan
       title: channel?.title || '',
       handle: channel?.handle || '',
       profileImage: channel?.profileImage || '',
+      platform: channel?.platform || 'youtube',
     },
     recommendation: recommendation || {},
     working: { title: '', hook: '', fullScript: '', cta: '', description: '', hashtags: [] },
