@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { getAIProvider } from '../ai/index.js'
+import { getAIProvider, getActiveProviderName } from '../ai/index.js'
 import { getSearchProvider, isSearchGrounded, getSearchProviderLabel } from '../search/index.js'
 import ResearchReport from '../../models/ResearchReport.js'
 
@@ -55,6 +55,36 @@ export async function analyzeScript({
   )
   console.log(`[ResearchEngine] extractScriptClaims → ${claims.length} claim(s)`)
 
+  // ── Degraded-mode detection ─────────────────────────────────────────────
+  const degraded = typeof search.isDegraded === 'function' && search.isDegraded()
+  const effectiveGrounded = configuredGrounded && !degraded
+  const effectiveLabel = degraded ? 'stub-fallback' : configuredLabel
+
+  if (claims.length === 0) {
+    const doc = await ResearchReport.upsertReport(
+      { workspaceId, channelId, ideaId },
+      {
+        scriptHash,
+        report: {
+          claims: [],
+          suggestions: [],
+          missingContext: [],
+          researchScore: {
+            overall: 100,
+            accuracy: 100,
+            freshness: 100,
+            credibility: 100,
+            citationCoverage: 100,
+          },
+        },
+        limitedVerification: !effectiveGrounded,
+        providerUsed: { ai: getActiveProviderName(), search: effectiveLabel },
+      },
+    )
+    console.log(`[ResearchEngine] report saved (empty claims short-circuit) — doc._id=${doc._id}`)
+    return doc
+  }
+
   // ── Step 4: batch search (no-op in stub mode) ───────────────────────────
   // De-duplicate claims by text before firing searches — multiple claims
   // with the same text share results. The Tavily provider also caches by
@@ -62,14 +92,6 @@ export async function analyzeScript({
   const uniqueClaimTexts = [...new Set(claims.map((c) => c.text))]
   const searchResultsMap = await search.batchSearch(uniqueClaimTexts)
   console.log(`[ResearchEngine] batchSearch → ${searchResultsMap.size} result set(s) via ${configuredLabel}`)
-
-  // ── Degraded-mode detection ─────────────────────────────────────────────
-  // If a grounded provider (Tavily) hit consecutive failures during the
-  // batch, fall back to AI-only analysis for this run. The report is marked
-  // so the UI surfaces the fallback message instead of the live banner.
-  const degraded = typeof search.isDegraded === 'function' && search.isDegraded()
-  const effectiveGrounded = configuredGrounded && !degraded
-  const effectiveLabel = degraded ? 'stub-fallback' : configuredLabel
 
   if (degraded) {
     console.warn(
