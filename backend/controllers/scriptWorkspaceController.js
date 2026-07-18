@@ -3,6 +3,9 @@ import Video from '../models/Video.js'
 import IntelligenceCache from '../models/IntelligenceCache.js'
 import ScriptWorkspace from '../models/ScriptWorkspace.js'
 import CreatorStyleProfile from '../models/CreatorStyleProfile.js'
+import InstagramProfile from '../models/InstagramProfile.js'
+import InstagramReel from '../models/InstagramReel.js'
+import InstagramIntelligenceCache from '../models/InstagramIntelligenceCache.js'
 import { getAIProvider, getActiveProviderName } from '../services/ai/index.js'
 import { AppError } from '../utils/errorHandler.js'
 
@@ -26,11 +29,43 @@ function withMeta(result, feature) {
 async function loadChannelContext(channelId, workspaceId, { req } = {}) {
   const filter = { channelId, workspaceId }
   const channel = await Channel.findOne(filter).lean()
-  if (!channel) {
-    throw new AppError('Channel not found', 404)
+  if (channel) {
+    const videos = await Video.find({ channelId }).sort({ publishedAt: -1 }).limit(20).lean()
+    return { channel, videos }
   }
-  const videos = await Video.find({ channelId }).sort({ publishedAt: -1 }).limit(20).lean()
-  return { channel, videos }
+
+  // Fallback to Instagram Profile
+  const profile = await InstagramProfile.findOne({
+    username: channelId,
+    workspaceId,
+    deletedAt: null
+  }).lean()
+
+  if (!profile) {
+    throw new AppError('Channel or Instagram profile not found', 404)
+  }
+
+  const reels = await InstagramReel.find({
+    username: channelId,
+    workspaceId
+  }).sort({ publishDate: -1 }).limit(20).lean()
+
+  return {
+    channel: {
+      channelId: profile.username,
+      title: profile.fullName || profile.username,
+      handle: profile.username,
+      profileImage: profile.profilePic || '',
+      platform: 'instagram',
+    },
+    videos: reels.map(r => ({
+      videoId: r.reelId,
+      title: r.caption || '',
+      views: r.views || 0,
+      likes: r.likes || 0,
+      publishedAt: r.publishDate
+    }))
+  }
 }
 
 // Resolve the recommendation (idea) object — either from the request body,
@@ -39,15 +74,32 @@ async function resolveRecommendation(channelId, ideaId, fallback) {
   if (fallback && typeof fallback === 'object' && String(fallback.id) === String(ideaId)) {
     return fallback
   }
-  const provider = getActiveProviderName()
-  const featureKey = `${provider}:video-ideas`
-  const cached = await IntelligenceCache.findCached(channelId, featureKey)
-  const ideas = cached?.result?.ideas
-  if (Array.isArray(ideas)) {
-    const match = ideas.find((i) => String(i.id) === String(ideaId))
-    if (match) return match
+
+  // Check if this is an Instagram account
+  const isInstagram = await InstagramProfile.exists({ username: channelId, deletedAt: null })
+  if (isInstagram) {
+    const cached = await InstagramIntelligenceCache.findOne({
+      accountId: channelId,
+      type: 'content-ideas',
+      expiresAt: { $gt: new Date() }
+    }).lean()
+
+    const ideas = cached?.result?.ideas
+    if (Array.isArray(ideas)) {
+      const match = ideas.find((i) => String(i.id) === String(ideaId))
+      if (match) return match
+    }
+  } else {
+    const provider = getActiveProviderName()
+    const featureKey = `${provider}:video-ideas`
+    const cached = await IntelligenceCache.findCached(channelId, featureKey)
+    const ideas = cached?.result?.ideas
+    if (Array.isArray(ideas)) {
+      const match = ideas.find((i) => String(i.id) === String(ideaId))
+      if (match) return match
+    }
   }
-  return null
+  return null;
 }
 
 // ── GET /:channelId/script-workspace/:ideaId ────────────────────────────────

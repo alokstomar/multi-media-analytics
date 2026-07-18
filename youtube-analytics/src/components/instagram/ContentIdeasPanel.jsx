@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Link } from 'react-router-dom'
 import { Film, Wand2, RotateCw, Play, TrendingUp, AlertTriangle, Inbox } from 'lucide-react'
 
 const VIRAL_COLOR = (score) => {
@@ -57,6 +58,7 @@ export default function ContentIdeasPanel({
   onGenerate,
   loading,
   fallback,
+  channelId,
 }) {
   const [prompt, setPrompt] = useState('')
   const ideas = Array.isArray(data?.ideas) ? data.ideas : []
@@ -234,6 +236,19 @@ export default function ContentIdeasPanel({
                           className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {channelId && (
+                    <div className="mt-3 pt-2 border-t border-gray-100/70 flex justify-end">
+                      <Link
+                        to={`/script/${channelId}/${idea.id}`}
+                        state={{ idea }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800 text-[11px] font-bold transition shadow-sm cursor-pointer border border-purple-100/50"
+                      >
+                        <Wand2 className="h-3.5 w-3.5 text-purple-500" />
+                        Script Workspace
+                      </Link>
                     </div>
                   )}
                 </motion.div>

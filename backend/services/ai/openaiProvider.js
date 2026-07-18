@@ -2157,72 +2157,83 @@ Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, vi
     const videos = Array.isArray(ctx.videos) ? ctx.videos : []
 
     let topVideos = videos.slice(0, 15)
+    const isInstagram = channel.platform === 'instagram'
 
-    // ── Tier 0: ensure transcripts are cached for the corpus ────────────
-    // Non-fatal. If this fails (no captions, package unavailable, network),
-    // extraction falls through to titles + descriptions with calibrated
-    // _speechDataConfidence. 14-day soft refresh window per video.
-    try {
-      const { ensureTranscriptsForVideos } = await import('../../services/transcriptService.js')
-      await ensureTranscriptsForVideos(topVideos, { concurrency: 4 })
-      const Video = (await import('../../models/Video.js')).default
-      const fresh = await Video.find({
-        videoId: { $in: topVideos.map((v) => v.videoId).filter(Boolean) },
-      }).lean()
-      const byId = new Map(fresh.map((v) => [v.videoId, v]))
-      topVideos = topVideos.map((v) => ({ ...v, ...(byId.get(v.videoId) || {}) }))
-    } catch (err) {
-      console.warn('[CreatorDNA] Transcript prefetch failed (non-fatal):', err?.message || err)
-    }
-
-    // ── Build content corpus (priority-ordered) ───────────────────────────
-    // Tier 1: transcripts (now populated by Tier 0 above)
-    const transcriptLines = []
-    for (const v of topVideos) {
-      if (v.transcript && typeof v.transcript === 'string' && v.transcript.trim()) {
-        transcriptLines.push(`[TRANSCRIPT] "${v.title}":\n${v.transcript.trim().substring(0, 800)}`)
-      }
-    }
-
-    // Tier 2: video descriptions (fetched live from YouTube API)
     let descriptionLines = []
-    try {
-      const videoIds = topVideos.map((v) => v.videoId).filter(Boolean)
-      if (videoIds.length) {
-        const { fetchVideoDescriptions } = await import('../../services/youtubeService.js')
-        const descData = await fetchVideoDescriptions(videoIds)
-        const descMap = new Map(descData.map((d) => [d.videoId, d.description]))
-        for (const v of topVideos) {
-          const desc = descMap.get(v.videoId)
-          if (desc && desc.length > 80) {
-            // Strip pure SEO/link sections — keep the first 400 chars (usually the actual description copy)
-            const cleanDesc = desc.split(/\n{2,}/)[0].trim().substring(0, 400)
-            if (cleanDesc.length > 60) {
-              descriptionLines.push(`[DESC] "${v.title}":\n${cleanDesc}`)
+    let transcriptLines = []
+    let titleLines = []
+
+    if (isInstagram) {
+      titleLines = topVideos.map((v, i) =>
+        `  ${i + 1}. Reel Caption: "${v.title || '(no caption)'}" — ${v.views || 0} views, ${v.likes || 0} likes`
+      )
+    } else {
+      // ── Tier 0: ensure transcripts are cached for the corpus ────────────
+      // Non-fatal. If this fails (no captions, package unavailable, network),
+      // extraction falls through to titles + descriptions with calibrated
+      // _speechDataConfidence. 14-day soft refresh window per video.
+      try {
+        const { ensureTranscriptsForVideos } = await import('../../services/transcriptService.js')
+        await ensureTranscriptsForVideos(topVideos, { concurrency: 4 })
+        const Video = (await import('../../models/Video.js')).default
+        const fresh = await Video.find({
+          videoId: { $in: topVideos.map((v) => v.videoId).filter(Boolean) },
+        }).lean()
+        const byId = new Map(fresh.map((v) => [v.videoId, v]))
+        topVideos = topVideos.map((v) => ({ ...v, ...(byId.get(v.videoId) || {}) }))
+      } catch (err) {
+        console.warn('[CreatorDNA] Transcript prefetch failed (non-fatal):', err?.message || err)
+      }
+
+      // ── Build content corpus (priority-ordered) ───────────────────────────
+      // Tier 1: transcripts (now populated by Tier 0 above)
+      for (const v of topVideos) {
+        if (v.transcript && typeof v.transcript === 'string' && v.transcript.trim()) {
+          transcriptLines.push(`[TRANSCRIPT] "${v.title}":\n${v.transcript.trim().substring(0, 800)}`)
+        }
+      }
+
+      // Tier 2: video descriptions (fetched live from YouTube API)
+      try {
+        const videoIds = topVideos.map((v) => v.videoId).filter(Boolean)
+        if (videoIds.length) {
+          const { fetchVideoDescriptions } = await import('../../services/youtubeService.js')
+          const descData = await fetchVideoDescriptions(videoIds)
+          const descMap = new Map(descData.map((d) => [d.videoId, d.description]))
+          for (const v of topVideos) {
+            const desc = descMap.get(v.videoId)
+            if (desc && desc.length > 80) {
+              // Strip pure SEO/link sections — keep the first 400 chars (usually the actual description copy)
+              const cleanDesc = desc.split(/\n{2,}/)[0].trim().substring(0, 400)
+              if (cleanDesc.length > 60) {
+                descriptionLines.push(`[DESC] "${v.title}":\n${cleanDesc}`)
+              }
             }
           }
         }
+      } catch (descErr) {
+        // Non-fatal — fall through to titles-only
+        console.warn('[CreatorDNA] Description fetch skipped:', descErr.message)
       }
-    } catch (descErr) {
-      // Non-fatal — fall through to titles-only
-      console.warn('[CreatorDNA] Description fetch skipped:', descErr.message)
-    }
 
-    // Tier 3: titles
-    const titleLines = topVideos.map((v, i) =>
-      `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`
-    )
+      // Tier 3: titles
+      titleLines = topVideos.map((v, i) =>
+        `  ${i + 1}. "${v.title || '(untitled)'}" — ${v.views || 0} views, ${v.likes || 0} likes`
+      )
+    }
 
     // Determine data source label for styleConfidence
     const hasTranscripts = transcriptLines.length > 0
     const hasDescriptions = descriptionLines.length > 0
-    const dataSourceLabel = hasTranscripts
-      ? 'transcripts'
-      : hasDescriptions
-        ? 'descriptions'
-        : titleLines.length
-          ? 'titles'
-          : 'channel-description'
+    const dataSourceLabel = isInstagram
+      ? 'reel-captions'
+      : hasTranscripts
+        ? 'transcripts'
+        : hasDescriptions
+          ? 'descriptions'
+          : titleLines.length
+            ? 'titles'
+            : 'channel-description'
 
     // Assemble corpus string — richest sources at top
     const corpusSections = []
@@ -2233,18 +2244,20 @@ Top Competitor Videos: ${JSON.stringify(topVideos.map(v => ({ title: v.title, vi
       corpusSections.push(`=== VIDEO DESCRIPTIONS (written copy — secondary source) ===\n${descriptionLines.join('\n\n')}`)
     }
     if (titleLines.length) {
-      corpusSections.push(`=== VIDEO TITLES (packaging signals) ===\n${titleLines.join('\n')}`)
+      corpusSections.push(`=== CONTENT CORPUS (${isInstagram ? 'Instagram Reel Captions' : 'Video Titles'}) ===\n${titleLines.join('\n')}`)
     }
     const contentCorpus = corpusSections.join('\n\n') || '(no content data available)'
 
-    const systemPrompt = `You are a Creator DNA Analyst. Your job is to reverse-engineer how a specific content creator thinks, speaks, teaches, persuades, and structures content — based on their actual content corpus.
+    const systemPrompt = `You are a Creator DNA Analyst. Your job is to reverse-engineer how a specific content creator thinks, speaks, teaches, persuades, and structures content — based on their actual content corpus (on ${isInstagram ? 'Instagram Reels' : 'YouTube'}).
 
-The profile you build is used downstream to generate entirely new scripts that feel like the creator actually wrote and spoke them. The richer and more accurate this profile, the better the generated scripts will sound.
+The profile you build is used downstream to generate entirely new ${isInstagram ? 'Instagram Reel scripts' : 'YouTube scripts'} that feel like the creator actually wrote and spoke them. The richer and more accurate this profile, the better the generated scripts will sound.
 
 DATA SOURCE PRIORITY (highest to lowest):
-1. Transcripts — actual spoken words (most valuable: captures rhythm, vocabulary, phrasing, humor)
+${isInstagram
+  ? `1. Reel Captions — captures vocabulary, hooks, formatting, language mix, humor, and audience address`
+  : `1. Transcripts — actual spoken words (most valuable: captures rhythm, vocabulary, phrasing, humor)
 2. Video descriptions — written copy (captures vocabulary, structure, authority style)
-3. Video titles — packaging signals (captures hook style, audience framing, topic patterns)
+3. Video titles — packaging signals (captures hook style, audience framing, topic patterns)`}
 4. Channel description — brand positioning (supplementary only)
 
 CONFIDENCE CALIBRATION:
@@ -2585,7 +2598,9 @@ Build the complete Creator DNA Profile now. Be analytical, specific, and honest 
           spokenGrammarBlock(speakingStyle.spokenGrammar),
         ].filter(Boolean).join('\n')
 
-    const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a video script that sounds like this specific creator actually spoke it on camera — a fresh transcript, not a polished article.
+    const isInstagram = channel.platform === 'instagram'
+
+    const systemPrompt = `You are a master ghostwriter specializing in voice reproduction. Your sole objective is to write a ${isInstagram ? 'short-form vertical video script (Instagram Reel)' : 'video script'} that sounds like this specific creator actually spoke it on camera — a fresh transcript, not a polished article.
 
 You have been given a Creator DNA Profile containing everything learned about how this creator thinks, speaks, teaches, persuades, and structures content — including a structured \`speakingStyle\` block that captures their spoken-language identity, rhythm, pauses, fillers, transitions, and audience-addressing style.
 
@@ -2593,7 +2608,12 @@ You have been given a Creator DNA Profile containing everything learned about ho
 SPEECH-FIRST RULES (override every other instruction on conflict)
 ═══════════════════════════════════════════════════════
 
-You are transcribing a brand-new video from this creator. NOT writing an article. The output must read like spoken dialogue, not prose.
+You are transcribing a brand-new ${isInstagram ? 'Instagram Reel' : 'video'} from this creator. NOT writing an article. The output must read like spoken dialogue, not prose.
+${isInstagram ? `
+INSTAGRAM REEL SPECIAL RULES:
+- The script should be high-impact, fast-paced, and suitable for a 30-90 second vertical Reel.
+- Retain the signature hooks and transitions of short-form video.
+- Optimize the hook (first 0-3 seconds) to be extremely catchy to stop the scroll.` : ''}
 
 FORMAT:
 - Each spoken beat = 1-3 sentences maximum, then a paragraph break (\\n\\n).
@@ -2716,14 +2736,14 @@ STEP 5 — WRITE THE SCRIPT (final output)
 
 The fullScript in your JSON output is the Step 4 transcription. Build the final JSON shape satisfying your Creator Voice Checklist from Step 1, with the SPEECH-FIRST RULES fully applied.
 
-Return ONLY valid JSON (no markdown fences). The scratchpad block must come BEFORE the JSON opening brace. Shape:
-{
-  "title": "<final CTR-optimized title under 70 chars, in the creator's exact title style>",
-  "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max. May include a pause marker or fragment if the creator opens that way.>",
-  "fullScript": "<the complete spoken script, formatted as natural speech. Each paragraph = one spoken beat (1-3 sentences). Use \\n\\n between beats. Use '...' for dramatic pauses where pauseStyle.marker suggests it. Use the creator's exact language mix and code-switching pattern. Use observed fillers sparingly (2-4 total). Use sentence fragments where the creator would. Follow the emotionalCurve progression. Target 400-900 words; prioritize SPEECH FEEL over length — never pad to hit a word count.>",
-  "cta": "<end-of-video call to action. Must match the learned ctaFormula and speakingStyle.storytellingPattern.ctaStyle — never generic.>",
-  "description": "<YouTube video description in the creator's voice, 100-300 words. Start with a punchy hook line, then context. Match vocabulary and tone.>",
-  "hashtags": [<8-15 relevant hashtags, no # prefix>],
+    Return ONLY valid JSON (no markdown fences). The scratchpad block must come BEFORE the JSON opening brace. Shape:
+    {
+      "title": "${isInstagram ? '<final engaging Reels title under 70 chars, in the creator\'s exact title style>' : '<final CTR-optimized title under 70 chars, in the creator\'s exact title style>'}",
+      "hook": "<0-10 second hook — the first words spoken. Must match the learned openingFormula. 1-3 sentences max. May include a pause marker or fragment if the creator opens that way.>",
+      "fullScript": "${isInstagram ? '<the complete spoken script for a 30-90 second Reel, formatted as natural speech. Each paragraph = one spoken beat (1-3 sentences). Use \\n\\n between beats. Use \'...\' for dramatic pauses. Target 100-250 words; keep it fast-paced, punchy, and high-impact. Never pad to hit a word count.>' : '<the complete spoken script, formatted as natural speech. Each paragraph = one spoken beat (1-3 sentences). Use \\n\\n between beats. Use \'...\' for dramatic pauses where pauseStyle.marker suggests it. Use the creator\'s exact language mix and code-switching pattern. Use observed fillers sparingly (2-4 total). Use sentence fragments where the creator would. Follow the emotionalCurve progression. Target 400-900 words; prioritize SPEECH FEEL over length — never pad to hit a word count.>'}",
+      "cta": "<end-of-video call to action. Must match the learned ctaFormula and speakingStyle.storytellingPattern.ctaStyle — never generic.>",
+      "description": "${isInstagram ? '<Instagram Reel caption in the creator\'s voice, 50-150 words. Start with a punchy hook line, use emojis naturally, and format with clean line breaks and spacing.>' : '<YouTube video description in the creator\'s voice, 100-300 words. Start with a punchy hook line, then context. Match vocabulary and tone.>'}",
+      "hashtags": [<8-15 relevant hashtags, no # prefix>],
   "styleMatch": {
     "overall": <number 0-100>,
     "language": <number 0-100>,

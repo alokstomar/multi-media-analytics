@@ -252,6 +252,7 @@ export default function InstagramAIIntelligence() {
             fallback={ideas.fallback}
             loading={ideas.status === 'loading'}
             onGenerate={handleGenerateIdeas}
+            channelId={accountId}
           />
           <BestTimesPanel
             data={best.data}
