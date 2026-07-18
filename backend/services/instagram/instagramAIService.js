@@ -80,6 +80,7 @@ export async function resolveAccount(username, workspaceId) {
   if (!acc) {
     throw new AppError('Instagram account not found in this workspace', 404)
   }
+  acc.accountId = acc.username
   return acc
 }
 
