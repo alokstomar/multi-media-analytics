@@ -56,7 +56,20 @@ export async function getResearch(req, res, next) {
     const workspace = await ScriptWorkspace.findOne({
       workspaceId: req.workspaceId, channelId, ideaId,
     }).lean()
-    if (!workspace) throw new AppError('Workspace not found', 404)
+
+    // Workspace not yet created (race condition: ResearchWorkspace mounts
+    // before the parent workspace is persisted). Return empty status so the
+    // UI shows "nothing to analyse" instead of crashing with a 404.
+    if (!workspace) {
+      attachAIHeaders(res)
+      return res.json(withMeta({
+        report: null,
+        status: 'empty',
+        scriptHash: null,
+        limitedVerification: isSearchGrounded() === false,
+        providerUsed: { ai: getActiveProviderName(), search: getSearchProviderLabel() },
+      }, 'research:get'))
+    }
 
     if (!workspace.working?.fullScript || workspace.working.fullScript.trim().length === 0) {
       attachAIHeaders(res)
