@@ -2,11 +2,11 @@ import InstagramComment from '../../models/InstagramComment.js'
 import InstagramReel from '../../models/InstagramReel.js'
 import { providerFactory } from './providerFactory.js'
 
-const PROVIDER_NAME = () => process.env.INSTAGRAM_PROVIDER || 'rapidapi'
+const PROVIDER_NAME = () => process.env.INSTAGRAM_PROVIDER || 'apify'
 
 /**
  * Classify comment text into sentiment + category.
- * Applied to every real comment fetched from RapidAPI.
+ * Applied to every real comment fetched from the provider.
  */
 export function classifyComment(text) {
   const t = (text || '').toLowerCase()
@@ -49,14 +49,14 @@ export const commentsService = {
    * MongoDB-first comment fetch. Production pipeline:
    *
    * 1. If forceSync=false AND MongoDB has comments → return them immediately.
-   *    RapidAPI is NOT called. Page refreshes are served from DB.
-   * 2. If forceSync=true OR no comments in DB → call provider (RapidAPI).
+   *    Provider is NOT called. Page refreshes are served from DB.
+   * 2. If forceSync=true OR no comments in DB → call provider.
    * 3. Upsert every fetched comment into MongoDB.
    * 4. If provider returns [] (no comments / unsupported endpoint) → return DB.
    * 5. If provider throws → return whatever is in DB (may be []).
    *
    * This ensures:
-   *  - RapidAPI quota is used efficiently (not on every page load)
+   *  - Provider quota is used efficiently (not on every page load)
    *  - Redis / cache availability is NOT required
    *  - No fake/mock data is ever produced
    *
@@ -88,13 +88,13 @@ export const commentsService = {
       }
     }
 
-    // ── Step 2: Call provider (RapidAPI) ───────────────────────────
+    // ── Step 2: Call provider ──────────────────────────────────────
     const provider = providerFactory.getProvider()
     const providerName = PROVIDER_NAME()
 
-    // Short-circuit: some RapidAPI hosts (e.g. instagram120) do not expose
-    // a comments endpoint at all. Skip the doomed call and serve whatever
-    // MongoDB has. The provider's getComments() would throw a typed
+    // Short-circuit: providers that don't support comments expose this via
+    // supportsComments(). Skip the doomed call and serve whatever MongoDB
+    // has. The provider's getComments() would throw a typed
     // COMMENTS_NOT_SUPPORTED error — checking supportsComments() here
     // avoids the throw and the noise.
     if (typeof provider.supportsComments === 'function' && !provider.supportsComments()) {
