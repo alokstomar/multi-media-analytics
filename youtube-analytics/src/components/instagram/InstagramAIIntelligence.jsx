@@ -142,7 +142,6 @@ export default function InstagramAIIntelligence() {
   const anyLoading =
     rec.status === 'loading' &&
     best.status === 'loading' &&
-    growth.status === 'loading' &&
     comp.status === 'loading' &&
     tags.status === 'loading'
 
