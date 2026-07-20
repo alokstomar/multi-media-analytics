@@ -169,7 +169,8 @@ export default function ResearchWorkspace({
 
   const reportData = report?.report
   const hasReport = !!reportData
-  const showEmpty = !enoughContent && status !== 'loading' && !hasReport
+  const needsAnalysis = status === 'needs-analysis' && !hasReport
+  const showEmpty = !enoughContent && status !== 'loading' && status !== 'needs-analysis' && !hasReport
   const words = wordCount(working?.fullScript)
 
   // Empty-state variant logic: distinguish "no claims detected" from "all clear".
@@ -242,7 +243,7 @@ export default function ResearchWorkspace({
           >
             {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             <span className="hidden sm:inline">
-              {isAnalyzing ? 'Analyzing…' : stale ? 'Re-analyze' : 'Refresh'}
+              {isAnalyzing ? 'Analyzing…' : (status === 'needs-analysis' && !hasReport) ? 'Analyze' : stale ? 'Re-analyze' : 'Refresh'}
             </span>
           </button>
         </div>
@@ -281,6 +282,23 @@ export default function ResearchWorkspace({
                   <p className="text-[11px] text-red-600/80 mt-0.5">
                     {error?.response?.data?.error?.message || error?.message || 'Try again in a moment.'}
                   </p>
+                </div>
+              )}
+
+              {/* Needs analysis — script has content but no cached report yet */}
+              {!showEmpty && needsAnalysis && (
+                <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-5 text-center">
+                  <Sparkles className="h-5 w-5 text-sky-400 mx-auto mb-2" />
+                  <p className="text-[12px] font-semibold text-sky-800">Script is ready to analyze.</p>
+                  <p className="text-[11px] text-sky-700/80 mt-0.5 mb-3">Click Analyze to run fact-checking and get improvement suggestions.</p>
+                  <button
+                    onClick={() => analyze()}
+                    disabled={isAnalyzing}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50 transition cursor-pointer shadow-sm"
+                  >
+                    {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    {isAnalyzing ? 'Analyzing…' : 'Analyze'}
+                  </button>
                 </div>
               )}
 

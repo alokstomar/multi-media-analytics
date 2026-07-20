@@ -46,12 +46,14 @@ function applySuggestionPatch(working, suggestion) {
 }
 
 // ── GET /:channelId/script-workspace/:ideaId/research ──────────────────────
-// Returns the cached report if scriptHash matches. Otherwise triggers the
-// engine. Body { force: true } forces a re-run regardless of hash.
+// READ-ONLY cache lookup. Returns the cached report when the scriptHash
+// matches the current working script. Returns status:'needs-analysis' (never
+// triggers heavy AI) when there is no matching cached report — the frontend
+// must then show the Analyze button and call POST /analyze on user action.
+// This keeps the GET fast (DB only) and prevents Vercel serverless timeouts.
 export async function getResearch(req, res, next) {
   try {
     const { channelId, ideaId } = req.params
-    const force = req.body?.force === true
 
     const workspace = await ScriptWorkspace.findOne({
       workspaceId: req.workspaceId, channelId, ideaId,
@@ -59,7 +61,7 @@ export async function getResearch(req, res, next) {
 
     // Workspace not yet created (race condition: ResearchWorkspace mounts
     // before the parent workspace is persisted). Return empty status so the
-    // UI shows "nothing to analyse" instead of crashing with a 404.
+    // UI shows "nothing to analyse" instead of crashing.
     if (!workspace) {
       attachAIHeaders(res)
       return res.json(withMeta({
@@ -87,7 +89,8 @@ export async function getResearch(req, res, next) {
       workspaceId: req.workspaceId, channelId, ideaId,
     })
 
-    if (!force && cached && cached.scriptHash === currentHash) {
+    // Exact cache hit — return immediately without any AI work.
+    if (cached && cached.scriptHash === currentHash) {
       attachAIHeaders(res)
       return res.json(withMeta({
         report: cached,
@@ -98,22 +101,16 @@ export async function getResearch(req, res, next) {
       }, 'research:get'))
     }
 
-    // Cache miss or hash mismatch — run the engine.
-    const report = await analyzeScript({
-      workspaceId: req.workspaceId,
-      channelId,
-      ideaId,
-      working: workspace.working,
-      userId: req.user?._id,
-    })
-
+    // Cache miss or stale hash — tell the frontend to run analysis via POST.
+    // We intentionally do NOT call analyzeScript() here to avoid Vercel
+    // serverless timeouts (DeepSeek + Tavily can take 30-90s).
     attachAIHeaders(res)
-    res.json(withMeta({
-      report,
-      status: cached ? 'refreshed' : 'generated',
+    return res.json(withMeta({
+      report: cached || null,   // return stale report if any so UI isn't blank
+      status: 'needs-analysis',
       scriptHash: currentHash,
-      limitedVerification: report.limitedVerification,
-      providerUsed: report.providerUsed,
+      limitedVerification: isSearchGrounded() === false,
+      providerUsed: { ai: getActiveProviderName(), search: getSearchProviderLabel() },
     }, 'research:get'))
   } catch (err) {
     next(err)

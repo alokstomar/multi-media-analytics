@@ -31,7 +31,7 @@ function localHash(working) {
 }
 
 const initialState = {
-  status: 'idle',          // 'idle' | 'loading' | 'ready' | 'error'
+  status: 'idle',          // 'idle' | 'loading' | 'ready' | 'needs-analysis' | 'error'
   report: null,            // ResearchReport doc (raw)
   scriptHash: null,        // hash at the time of last analysis
   limitedVerification: true,
@@ -63,6 +63,20 @@ function reducer(state, action) {
         error: null,
       }
     }
+    // Server has script content but no fresh cache — user must click Analyze.
+    // We may still carry a stale report from a prior version of the script.
+    case 'NEEDS_ANALYSIS':
+      return {
+        ...state,
+        status: 'needs-analysis',
+        report: action.report || state.report,
+        scriptHash: action.scriptHash,
+        limitedVerification: action.limitedVerification,
+        providerUsed: action.providerUsed,
+        isAnalyzing: false,
+        stale: true,
+        error: null,
+      }
     case 'LOAD_ERROR':
       return { ...state, status: 'error', isAnalyzing: false, error: action.error }
     case 'SET_STALE':
@@ -105,23 +119,34 @@ export function useResearchWorkspace({ channelId, ideaId, working, enabled = tru
     dispatch({ type: 'SET_STALE', stale: drift })
   }, [working, state.report])
 
-  // ── Bootstrap: GET research (auto-triggers server-side analysis on miss) ──
-  // `force` is accepted for symmetry with the analyze endpoint but is a
-  // no-op on GET — the server decides whether to re-run based on scriptHash.
+  // ── Bootstrap: GET research — DB cache lookup only, no AI on GET ──────────
+  // The server now returns status:'needs-analysis' when there is no fresh
+  // cached report (instead of triggering AI inline). This keeps the GET fast
+  // and prevents Vercel serverless timeouts.
   const load = useCallback(async () => {
     if (!channelId || !ideaId) return
     dispatch({ type: 'LOAD_START' })
     try {
       const res = await getResearchReport(channelId, ideaId)
       const data = res?.data || {}
-      dispatch({
-        type: 'LOAD_SUCCESS',
-        report: data.report,
-        scriptHash: data.scriptHash,
-        limitedVerification: data.limitedVerification,
-        providerUsed: data.providerUsed || { ai: 'deepseek', search: 'stub' },
-      })
-      lastAnalyzedHashRef.current = localHashRef.current
+      if (data.status === 'needs-analysis') {
+        dispatch({
+          type: 'NEEDS_ANALYSIS',
+          report: data.report || null,
+          scriptHash: data.scriptHash,
+          limitedVerification: data.limitedVerification,
+          providerUsed: data.providerUsed || { ai: 'deepseek', search: 'stub' },
+        })
+      } else {
+        dispatch({
+          type: 'LOAD_SUCCESS',
+          report: data.report,
+          scriptHash: data.scriptHash,
+          limitedVerification: data.limitedVerification,
+          providerUsed: data.providerUsed || { ai: 'deepseek', search: 'stub' },
+        })
+        lastAnalyzedHashRef.current = localHashRef.current
+      }
     } catch (err) {
       dispatch({ type: 'LOAD_ERROR', error: err })
     }
